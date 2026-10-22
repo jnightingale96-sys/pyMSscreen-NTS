@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { saveState, loadState, generateTable } from '../api/api';
+import { saveState, loadState, generateTable, ntsInfo } from '../api/api';
 import { useAppState } from '../context/AppStateContext';
 import { useNavigate } from 'react-router-dom';
 import RibbonHeader from "../components/RibbonHeader";
@@ -195,7 +195,13 @@ const LandingPage = () => {
   const [globalAdducts, setGlobalAdducts] = useState({ positive: [], negative: [] });
   const [isGenerating, setIsGenerating] = useState(false);
   const navigate = useNavigate();
-  const [workingDirectory, setWorkingDirectory] = useState("/app/uploads/");
+  const [workingDirectory, setWorkingDirectory] = useState(appState.working_directory || "/app/uploads/");
+
+  // Native (non-Docker) install: start from the server's default working directory instead of /app/uploads
+  useEffect(() => {
+    if (appState.working_directory) return;
+    ntsInfo().then(r => r.data?.default_working_dir && setWorkingDirectory(r.data.default_working_dir)).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [compoundCSV, setCompoundCSV] = useState(null);
   const [mzmlFiles, setMzmlFiles] = useState([]);
   const [tags, setTags] = useState({});
@@ -433,7 +439,9 @@ useEffect(() => {
           </summary>
           <ol style={{ paddingLeft: "20px", marginTop: "10px" }}>
             <li>
-              The <strong>Working Directory</strong> is set to <code>/app/uploads</code> by default. This directory is mapped to a folder on your local machine through Docker, so all uploaded files and generated outputs are saved and persist outside the container.  
+              The <strong>Working Directory</strong> is the folder that holds your compound CSV and mzML files; outputs are written there too.
+              With Docker it is <code>/app/uploads</code> (mapped to a local folder); in the native Windows app type the folder path, e.g. <code>C:\data\my_run</code>.
+              The selected files must be inside this folder.
             </li>
             <li>Upload the <strong>Compound CSV</strong>…</li>
             <li>Upload one or more <strong>mzML Files</strong>.</li>

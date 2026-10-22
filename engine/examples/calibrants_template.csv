@@ -1,0 +1,4 @@
+name,smiles,rt,conc_ug_ml,area,polarity
+# Semi-quant calibrants on THIS method (single level for single/logie; >=3 levels per compound enables curve mode).
+# python -m hrms_nts calibrate <standard.mzML> measures the area column for you.
+Carbamazepine,NC(=O)N1c2ccccc2C=Cc2ccccc12,,0.5,,positive

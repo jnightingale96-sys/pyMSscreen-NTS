@@ -1,0 +1,3 @@
+ID,Name,SMILES,mz,precursor_mz
+T1,4-Nitrophenol,Oc1ccc(cc1)[N+](=O)[O-],,
+T2,Carbamazepine,NC(=O)N1c2ccccc2C=Cc2ccccc12,,

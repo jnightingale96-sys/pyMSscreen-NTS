@@ -16,6 +16,15 @@ backend_smoke_tests:
       junit: backend/report.xml
     expire_in: 1 week
 
+nts_engine_tests:
+  stage: test
+  image: python:3.12
+  before_script:
+    - cd engine
+    - pip install -e .[dev]
+  script:
+    - pytest -q tests
+
 frontend_light_check:
   stage: test
   image: node:20-bullseye

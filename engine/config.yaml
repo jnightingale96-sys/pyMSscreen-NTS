@@ -1,0 +1,116 @@
+# =====================================================================================================
+#  HRMS NTS toolkit - DEFAULT configuration (portable, committed to git).
+#  Machine/lab specific paths and tuning go in config.local.yaml (same folder, git-ignored; deep-merged over this file).
+#  Relative paths are relative to this folder.
+# =====================================================================================================
+paths:
+  # ---- Data sources: NOT shipped with the tool (size/licence).  Put them under data/ or override in config.local.yaml ----------
+  # NORMAN SusDat export (tab separated .csv)          https://www.norman-network.com/nds/susdat/
+  susdat:       "data/susdat.csv"
+  # PubChemLite for Exposomics (.csv)                   search 'PubChemLite' on Zenodo / https://pubchemlite.lcsb.uni.lu
+  pubchemlite:  "data/PubChemLite_exposomics.csv"
+  user_compounds: null          # compounds.csv (pyMSscreen format: ID,Name,SMILES,mz,precursor_mz) - extra suspects / targets
+  # MS/MS libraries in NIST-style MSP: MassBank (github.com/MassBank/MassBank-data releases, *_NISTformat.msp),
+  # GNPS (gnps-external.ucsd.edu/gnpslibrary, ALL_GNPS_NO_PROPOGATED.msp), MoNA.  `build-library` converts them to one SQLite file.
+  library_msp:
+    - "data/MassBank_NISTformat.msp"
+  inhouse_msp: null             # your own standards' MS2 (MSP).  Spectra from here are tagged 'inhouse' -> Level 1
+  library_db:  "work/spectral_library.sqlite"
+  standards:   "user_data/standards.csv"   # authentic standards on THIS method: name,smiles,inchikey,rt_pos,rt_neg  (RT model + Level 1)
+  calibrants:  "user_data/calibrants.csv"  # semi-quant calibrants: name,smiles,rt,conc_ug_ml,area[,polarity]
+  cache_dir:   "work/cache"
+  java: "java"                  # only needed for the optional MetFrag engine
+  metfrag_jar: null             # MetFragCommandLine-*.jar (https://ipb-halle.github.io/MetFrag/)
+  metfrag_mb_folder: null       # optional offline MassBank-format folder for MetFrag's OfflineIndividualMoNAScore
+  thermorawfileparser: null     # ThermoRawFileParser.exe for the `convert` command
+
+polarity_patterns:               # polarity guessed from the file name unless --polarity is given
+  positive: '(^|[_\-\. ])(POS|POSITIVE)([_\-\. 0-9]|$)'
+  negative: '(^|[_\-\. ])(NEG|NEGATIVE)([_\-\. 0-9]|$)'
+
+ms1:
+  store_min_intensity: 10000     # peaks below this are dropped when reading (memory); keep <= min_intensity/10
+  min_intensity: 100000          # feature apex threshold (counts)
+  min_scans: 3
+  feature_ppm: 10                # m/z adjacency used to build a feature
+  rt_gap_min: 0.3                # RT gap that ends a feature (min)
+  rt_range: null                 # e.g. [0.5, 25]
+  split_broad_min: 0.6           # features wider than this are valley-split
+  split_prominence: 0.2
+  flag_width_min: 2.0            # wider than this after splitting -> 'broad_flag' (continuous background)
+  bg_occupancy: 0.30             # ion present in > 30 % of all MS1 scans AND no strong peak -> 'background_flag'
+  bg_peak_to_median: 15
+  relation_rt_tol: 0.06
+
+ms2:
+  precursor_tol_da: 0.02         # DDA precursor match to feature m/z
+  rt_pad_min: 0.1
+  merge_scans: 3                 # average up to N closest-to-apex MS2 scans
+  rel_min: 0.01                  # drop peaks < 1 % of base peak
+  top_n: 100
+  good_int: 2500                 # pyMSscreen-style MS2 intensity QA
+
+level4:
+  ppm: 5
+  adducts_positive: null         # null = all of [M+H]+ [M+Na]+ [M+K]+ [M+NH4]+
+  adducts_negative: null         # null = all of [M-H]- [M+Cl]- [M+HCOO]- [M+CH3COO]-
+  drop_isotope_peaks: true       # do not match M+1/M+2 peaks of a more intense co-eluting feature
+  use_isotopes: true
+  min_iso_score: 0.0             # >0 discards candidates whose measurable M+1/M+2 contradict the formula
+
+rt:
+  enabled: true
+  tolerance_min: 0.5             # +-0.5 min (honey-paper SI criterion)
+  conflict_factor: 2.0           # conflict when all models are off by > factor x tolerance
+  adaptive_k: 0.0                # >0: tolerance = max(tolerance_min, k x CV-RMSE)
+
+library:
+  precursor_ppm: 20
+  frag_tol_da: 0.01
+  frag_tol_ppm: 20
+  min_report_score: 0.3
+  remove_precursor: true
+  discovery: true                # add library-only identifications for compounds not in the suspect lists
+
+insilico:
+  engine: builtin                # builtin | metfrag | both | none
+  max_candidates_per_feature: 8
+  frag_tol_da: 0.005
+  frag_tol_ppm: 10
+  rel_min: 0.02
+  max_depth: 2
+  metfrag_jar: null              # null -> paths.metfrag_jar
+  metfrag_min_intensity: 0
+
+levels:
+  min_ms2_peaks: 3
+  ignore_ms2_intensity: false
+  lib_cosine: 0.70               # Level 2a
+  lib_min_matched: 2             # honey-paper SI: >= 2 matching product ions
+  lib_cosine_weak: 0.40          # supports Level 3
+  min_explained_peaks_2b: 3      # decoy-adjusted, fragments >= 60 m/z only
+  min_explained_peaks_3: 2
+  insilico_min_score: 0.20       # decoy-corrected explained-intensity fraction (builtin) or MetFrag score
+  lowmass_da: 120                # neutral mass below this cannot reach 2b/3 from in-silico evidence alone
+  clear_top_margin: 0.15
+  level1_rt_tol: 0.20            # authentic-standard RT window (min)
+  level1_require_inhouse_ms2: false
+
+semiquant:
+  mode: single                   # single | logie | curve | none
+  area_column: area              # area | max_int
+  uncertainty_factor: 10         # reported low/high bounds = /x and *x
+  loq_ug_mL_extract: null
+  single_reference:              # replace 'area' by the area THIS toolkit measures for the reference (run `calibrate`)
+    name: Carbamazepine
+    conc_ug_mL: 0.5
+    area: 564162031.8
+  matrices:                      # conc(ug/mL extract) * factor -> unit
+    extract: {factor: 1.0,          unit: "ug/mL extract"}
+    water:   {factor: 1000000.0,    unit: "ng/L (no enrichment)"}                 # ug/mL -> ng/L ; divide by SPE enrichment yourself or edit factor
+    grain:   {factor: 166.6667,     unit: "ug/kg dw (0.5 mL extract per 3 g)"}
+    soil:    {factor: 2000.0,       unit: "ug/kg dw (10 mL extract per 5 g)"}
+
+blank:
+  samples: []                    # sample names (file stems) of blanks
+  ratio: 3.0

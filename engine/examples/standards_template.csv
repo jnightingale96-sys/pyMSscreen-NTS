@@ -1,0 +1,6 @@
+name,smiles,inchikey,rt_pos,rt_neg
+# Authentic standards injected on THIS LC method (RT models + Level 1). Fill rt_pos / rt_neg in minutes; leave blank if not measured.
+# Replace the example RTs with your own.
+Carbamazepine,NC(=O)N1c2ccccc2C=Cc2ccccc12,FFGPTBGBLSHEPO-UHFFFAOYSA-N,,
+Caffeine,Cn1cnc2c1c(=O)n(C)c(=O)n2C,RYYVLZVUVIJVGH-UHFFFAOYSA-N,,
+4-Nitrophenol,Oc1ccc(cc1)[N+](=O)[O-],BTJIUGUIPKRLHP-UHFFFAOYSA-N,,6.1

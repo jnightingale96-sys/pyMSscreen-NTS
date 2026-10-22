@@ -1,0 +1,26 @@
+# environments / caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.nts_cache/
+*.egg-info/
+
+# machine-specific config and data (NEVER commit)
+config.local.yaml
+data/
+work/
+user_data/*
+!user_data/.gitkeep
+NTS_out_*/
+prescreen_out/
+calibrant_areas.csv
+
+# large / licensed inputs
+*.mzML
+*.mzml
+*.raw
+*.msp
+*.sqlite
+*.db
+!tests/**/*.mzML

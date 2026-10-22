@@ -1,4 +1,37 @@
-# pyMSscreen
+# pyMSscreen-NTS
+
+**pyMSscreen-NTS** is a modified version of [pyMSscreen](https://gitlab.com/uniluxembourg/lcsb/eci/pymsscreen)
+(University of Luxembourg, LCSB Environmental Cheminformatics; Artistic License 2.0). It keeps the complete pyMSscreen
+targeted-prescreening workflow (inputs → extraction → plotting/QA) and adds the **HRMS NTS engine** (`engine/`, package `hrms_nts`):
+
+| Page | What it does |
+|---|---|
+| Inputs / Extraction / Plotting | original pyMSscreen: compound list → EIC + MS2 extraction → QA flags → interactive review, PDF, MSP library |
+| **NTS levels** | non-target screening of DDA mzML files: Level 5 → 4 → 3 → 2b → 2a → 1 (NORMAN SusDat, PubChemLite, MassBank/GNPS libraries, RT prediction, product-ion evidence), results tables, MS2 mirror plots, Excel export, *Send to pyMSscreen prescreen* |
+| **Semi-quant** | concentrations without standards: single reference, logIE + elucidation distance, or own calibration curve; matrix conversion (water / grain / soil / extract); calibrant table editing and area measurement |
+| **Product ions** | predicted fragments / neutral losses and MRM transitions for a SMILES; score an experimental MS2 spectrum against the prediction |
+
+### Start on Windows (no Docker)
+Double-click **`START_pyMSscreen-NTS.bat`**. The first start creates `.venv` and installs everything (needs Python ≥ 3.10, and
+Node.js once to build the interface; 5–10 min). Later starts take seconds and open `http://127.0.0.1:8765` in your browser.
+Close the black window to stop. The app listens on this computer only.
+
+Before the first non-target run, point the engine at your databases: copy `engine/config.local.example.yaml` to
+`engine/config.local.yaml` and edit the paths (SusDat, PubChemLite, MSP libraries); the *NTS levels* page shows what is found.
+Build the spectral library once: `.venv\Scripts\python -m hrms_nts build-library`. Engine details, validation status and
+the command line: [`engine/README.md`](engine/README.md), [`engine/VALIDATION.md`](engine/VALIDATION.md).
+
+Tests: `.venv\Scripts\python -m pytest backend/tests` and `cd engine && ..\.venv\Scripts\python -m pytest tests`.
+
+Changes to the original pyMSscreen files are limited to: navigation bar and three new pages (`frontend/src/components/`),
+same-origin API base for the native build (`api.js`, `npm run build:windows`), Windows working-directory defaults on the
+Inputs page, run-number-tolerant polarity detection from file names (`backend/app/utils.py`), and Flask serving the built
+frontend (`web_app.py`, `run_windows.py`). The Docker route below still runs the original pyMSscreen pages; the backend
+image does not yet install `engine/`, so the three NTS pages currently need the native Windows start.
+
+---
+
+# pyMSscreen (original documentation)
 
 ## Overview
 

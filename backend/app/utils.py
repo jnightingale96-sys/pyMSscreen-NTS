@@ -59,9 +59,10 @@ def _post_and_check(step_name: str, url: str, payload: dict) -> Tuple[bool, Any]
 
 def infer_polarity_from_name(path_or_name: str) -> str:
     s = os.path.basename(path_or_name).lower()
-    if re.search(r'(?:^|[_\W])(pos|positive)(?:[_\W]|$)', s):
+    # a run number may follow directly (e.g. "maize_Negative11", "WW_POS001")
+    if re.search(r'(?:^|[_\W])(pos|positive)(?:[_\W\d]|$)', s):
         return "positive"
-    if re.search(r'(?:^|[_\W])(neg|negative)(?:[_\W]|$)', s):
+    if re.search(r'(?:^|[_\W])(neg|negative)(?:[_\W\d]|$)', s):
         return "negative"
     return "unknown"
 

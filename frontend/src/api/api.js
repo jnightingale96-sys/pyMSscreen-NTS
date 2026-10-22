@@ -1,7 +1,31 @@
 import axios from 'axios';
 
+// Docker: separate backend container on :8080. Native Windows build (`npm run build:windows`): Flask serves
+// this app and the API from the same origin.
 export const API_BASE =
-  import.meta.env.VITE_API_BASE || 'http://localhost:8080';
+  import.meta.env.VITE_API_BASE ||
+  (import.meta.env.MODE === 'windows' ? window.location.origin : 'http://localhost:8080');
+
+// ---- HRMS NTS engine (non-target screening, semi-quant, product ions) ----
+export const ntsInfo = () => axios.get(`${API_BASE}/nts/info`);
+export const ntsListMzml = (folder) => axios.get(`${API_BASE}/nts/list_mzml`, { params: { folder } });
+export const ntsStartRun = (payload) => axios.post(`${API_BASE}/nts/start_run`, payload);
+export const ntsStartCalibrate = (payload) => axios.post(`${API_BASE}/nts/start_calibrate`, payload);
+export const ntsJob = (job_id) => axios.get(`${API_BASE}/nts/job`, { params: { job_id } });
+export const ntsCancel = (job_id) => axios.post(`${API_BASE}/nts/cancel`, { job_id });
+export const ntsRuns = (folder) => axios.get(`${API_BASE}/nts/runs`, { params: { folder } });
+export const ntsResults = (params) => axios.get(`${API_BASE}/nts/results`, { params });
+export const ntsPlots = (run_dir) => axios.get(`${API_BASE}/nts/plots`, { params: { run_dir } });
+export const ntsFileUrl = (run_dir, name, download = false) =>
+  `${API_BASE}/nts/file?${new URLSearchParams({ run_dir, name, download: download ? '1' : '0' })}`;
+export const ntsExportToPrescreen = (payload) => axios.post(`${API_BASE}/nts/export_to_prescreen`, payload);
+export const ntsGetCalibrants = () => axios.get(`${API_BASE}/nts/calibrants`);
+export const ntsSaveCalibrants = (rows) => axios.post(`${API_BASE}/nts/calibrants`, { rows });
+export const ntsSemiquant = (payload) => axios.post(`${API_BASE}/nts/semiquant`, payload);
+export const ntsPredictIons = (payload) => axios.post(`${API_BASE}/nts/predict_ions`, payload);
+export const ntsStructureUrl = (smiles, size = 260) =>
+  `${API_BASE}/nts/structure.svg?${new URLSearchParams({ smiles, size })}`;
+export const apiError = (err) => err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Unknown error';
 
 export const saveState = (state) => {
   return axios.post(`${API_BASE}/save_state`, state);

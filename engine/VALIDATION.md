@@ -1,0 +1,51 @@
+# Validation protocol (for the team)
+
+The tool reports *evidence* for each level; it does not prove identifications. Before results are used in a paper, the team should run
+the checks below on **your own data** and record the outcome in `validation/results/` (commit the CSV summaries + `provenance.json`).
+
+## 0. Automated checks (every change)
+`pytest tests` (or `run_tests.bat`) - 22 tests: feature picking, ppm matching, isotopes, cosine, level rules, config layering,
+semi-quant arithmetic, MetFrag wrapper (skipped if Java/jar absent) and an end-to-end CLI run on a generated mzML.
+A change that alters a **level rule or threshold** must update/extend `tests/test_core.py::test_level_logic` in the same commit.
+
+## 1. Ground-truth dataset (needed once per LC-MS method / matrix)
+| Sample set | Purpose |
+|---|---|
+| Matrix blank (unspiked, same extraction) | false-identification rate; background behaviour |
+| Matrix spiked with 50-100 authentic standards across classes/polarity, >= 3 levels (e.g. 0.5/5/50 ng/mL) | recovery, ppm/RT accuracy, level reached, semi-quant fold error |
+| Solvent blank / procedural blank | blank filter |
+| Real samples with confirmed compounds (e.g. carbamazepine, 4-nitrophenol) | sanity check |
+Acquire in DDA with the same method as the real samples. Put the standards' RTs in `user_data/standards.csv` **from a separate injection or a
+separate half of the standards** (do not train the RT model on the compounds you then test it on).
+
+## 2. Run and score
+```
+hrms-nts run <mzML folder> --matrix <water|grain|soil|extract> --insilico both --out validation/results/<date>_<set>
+hrms-nts validate validation/results/<date>_<set> expected.csv --absent absent.csv
+```
+`expected.csv`: `name,smiles|inchikey,sample,adduct,rt,min_level,true_conc_ug_ml` (see `examples/expected_example.csv`).
+`absent.csv`: compounds known **not** to be in the sample (not spiked / in blank) - gives the false-identification rate per level.
+
+## 3. Metrics reported by `validate` and suggested acceptance criteria (PROPOSALS - the team must agree and fix them before testing)
+| Metric | Meaning | Suggested target |
+|---|---|---|
+| `recovery_pct` | expected compounds found at >= Level 4 | >= 90 % at the spike level of interest |
+| `reached_level<=2a/1` | share reaching library / standard confirmation | report, no target |
+| `median_abs_ppm` | mass accuracy | <= 2 ppm |
+| `median_abs_rt_diff_min` | RT agreement (needs `rt` in expected.csv) | report |
+| `top1_rate_pct` | correct structure ranked first within its feature | >= 80 % |
+| `absent_flagged_at_<=L2b` / `<=L2a` / `<=L1` | false identifications | 0 at L1 and L2a; <= 1-2 % at L2b |
+| `semiquant_median_fold_error`, `within_3x_pct`, `within_10x_pct` | semi-quant accuracy vs spiked concentration | report; literature value for single-reference semi-quant is typically within ~1 order of magnitude |
+
+## 4. What still needs validating (known open items)
+1. **Absolute semi-quant**: `config.yaml` `single_reference.area` came from Compound Discoverer; re-measure with `hrms-nts calibrate` on this toolkit, then check fold error on spiked compounds (class-specific bias is expected: ionisation efficiency varies by orders of magnitude).
+2. **Background flag** (`ms1.bg_occupancy`, `ms1.bg_peak_to_median`): 57 % of features were flagged in the first wastewater test; sweep the thresholds against the blank and spiked data and record the recovery/FP trade-off (`--set ms1.bg_occupancy=0.5`).
+3. **Library thresholds** (`levels.lib_cosine`, `lib_min_matched`, `library.frag_tol_*`): instrument/collision-energy dependent; check false 2a rate on `absent.csv`. GNPS contains lower-quality spectra than MassBank - compare libraries (`build-library --only MassBank`).
+4. **Level 2b**: built-in scorer benchmark (`tools/benchmark_insilico.py`): AUC 0.84 (pos) / 0.80 (neg), decoys were not isomers. Repeat with isomeric decoys and with `--insilico both`.
+5. **RT models** (`rt.tolerance_min` = 0.5 min): need >= 8 standards; report the cross-validated RMSE printed in `run.log` and whether +-0.5 min is appropriate (`rt.adaptive_k`).
+6. **Isotope scoring**, **adduct handling** ([M+HCOO]-, [M+Cl]-, [M+CH3COO]- produce many chance candidates for small molecules - see the 120 Da rule) and **Level 1 definition** (`levels.level1_require_inhouse_ms2`).
+7. DIA data are not supported.
+
+## 5. Record every validation run
+Copy `validation_summary.csv`, `provenance.json`, `config_used.yaml` into `validation/results/<date>_<set>/` and add one line to `validation/LOG.md`
+(date, who, dataset, toolkit commit, parameters changed, headline metrics, decision).

@@ -1,0 +1,4 @@
+name,smiles,inchikey,sample,adduct,rt,min_level
+4-Nitrophenol,,BTJIUGUIPKRLHP-UHFFFAOYSA-N,WW_Additional_maize_Negative11,[M-H]-,6.1,1
+Lauryl sulfate,CCCCCCCCCCCCOS(=O)(=O)O,,*,[M-H]-,9.9,2a
+Carbamazepine,NC(=O)N1c2ccccc2C=Cc2ccccc12,,*,,,4

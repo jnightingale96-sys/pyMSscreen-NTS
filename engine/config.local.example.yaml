@@ -1,0 +1,10 @@
+# Local overrides - COPY to config.local.yaml and edit (this example file is committed). Anything here overrides config.yaml (deep merge).
+paths:
+  susdat:       "D:/data/susdat.csv"
+  pubchemlite:  "D:/data/PubChemLite_exposomics_20241227.csv"
+  library_msp:
+    - "D:/data/MassBank_NISTformat.msp"
+    - "D:/data/ALL_GNPS_NO_PROPOGATED.msp"
+  metfrag_jar: "D:/data/MetFragCommandLine-2.6.11.jar"
+  metfrag_mb_folder: "D:/data/mb_converted"
+  thermorawfileparser: "D:/data/ThermoRawFileParser.exe"

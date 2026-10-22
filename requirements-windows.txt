@@ -1,0 +1,18 @@
+# Native Windows install (no Docker) - used by START_pyMSscreen-NTS.bat
+# pyMSscreen backend (the Docker image uses backend/requirements.txt + gunicorn; here waitress serves the app)
+flask
+Flask-Cors
+fpdf
+kaleido==0.2.1
+matplotlib
+numpy
+pandas
+plotly>=5,<6
+pyopenms
+PyYAML
+rdkit
+requests
+waitress
+pytest
+# HRMS NTS engine (Level 5-1, semi-quant, product ions) - installed from ./engine
+-e ./engine
