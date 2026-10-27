@@ -15,25 +15,29 @@ exit /b %errorlevel%
 echo.
 echo ============ HRMS non-target screening (Level 5/4/3/2b/2a/1 + semi-quant) ============
 echo   1  Check installation / paths (doctor)
-echo   2  Build MS/MS spectral library (MassBank/GNPS/in-house MSP -^> SQLite^)   [one-off]
+echo   2  Build MS/MS spectral library (MassBank/GNPS/in-house MSP -> SQLite)   [one-off]
 echo   3  RUN full screening on mzML folder/files
+echo   T  TARGETED screen: internal standards / targets / calibrants (Q1/Q4 errors, levels, blanks, calibration)
 echo   4  Targeted prescreen from compounds.csv (pyMSscreen-style QA)
 echo   5  Predict product ions / MRM transitions for a SMILES
 echo   6  Measure calibrant areas from a standard mzML (semi-quant)
 echo   7  Convert Thermo .raw folder to centroided mzML
 echo   8  Run the automated tests (pytest)
 echo   9  Validate a results folder against expected.csv
+echo   P  PEC-vs-MEC screening (semi-quant water + fate model vs semi-quant grain)
 echo   0  Exit
 set /p CH=Choose:
 if "%CH%"=="1" %PY% -m hrms_nts doctor & goto menu
 if "%CH%"=="2" %PY% -m hrms_nts build-library & goto menu
 if "%CH%"=="3" goto run
+if /i "%CH%"=="T" goto tgt
 if "%CH%"=="4" goto pre
 if "%CH%"=="5" goto pred
 if "%CH%"=="6" goto cal
 if "%CH%"=="7" goto conv
 if "%CH%"=="8" %PY% -m pytest tests & goto menu
 if "%CH%"=="9" goto val
+if /i "%CH%"=="P" goto pec
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -46,6 +50,17 @@ if "%SQ%"=="" set SQ=single
 set /p IS=In-silico engine [builtin/metfrag/both/none] (default builtin):
 if "%IS%"=="" set IS=builtin
 %PY% -m hrms_nts run "%IN%" --matrix %MX% --semiquant %SQ% --insilico %IS%
+pause & goto menu
+
+:tgt
+set /p IN=mzML folder or files (wildcards ok):
+set /p LS=Compound list CSV/XLSX (e.g. examples\drug_IS_pos_75.csv):
+set /p BL=Blank file name(s) or pattern, space separated (Enter = none):
+set /p SS=Sample sheet CSV with file,type,conc (Enter = none):
+set A=
+if not "%BL%"=="" set A=--blank %BL%
+if not "%SS%"=="" set A=%A% --sample-sheet "%SS%"
+%PY% -m hrms_nts targeted "%IN%" --list "%LS%" %A%
 pause & goto menu
 
 :pre
@@ -77,4 +92,10 @@ set /p RS=Results folder:
 set /p EX=expected.csv: 
 set /p AB=absent.csv (optional, Enter to skip): 
 if "%AB%"=="" (%PY% -m hrms_nts validate "%RS%" "%EX%") else (%PY% -m hrms_nts validate "%RS%" "%EX%" --absent "%AB%")
+pause & goto menu
+
+:pec
+set /p MP=Sample map CSV (file,matrix,field,role): 
+set /p PR=Properties CSV/XLSX (optional, Enter to skip): 
+if "%PR%"=="" (%PY% -m hrms_nts pec-screen "%MP%") else (%PY% -m hrms_nts pec-screen "%MP%" --properties "%PR%")
 pause & goto menu

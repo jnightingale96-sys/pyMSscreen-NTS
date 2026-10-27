@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0 (2026-10-27) - SCIEX / profile / DIA (SWATH) support + targeted screen
+* Profile spectra centroided on reading (`centroid.py`); DIA/SWATH windows detected and stored (`mzml_io`), correlation pseudo-MS2 per feature
+  (`dia.py`) so `run` works on SWATH data with the unchanged library / in-silico / level logic.
+* Instrument profiles (`instrument.profiles`, auto-detected from the mzML header; `common.config_for_file`); SCIEX TOF thresholds; `--set` wins.
+* MS1 scan-gap warnings (incomplete exports); acquisition start time recorded.
+* New command `targeted` (+ web page "IS / targets", menu option T): isotope-labelled formulas ([2H]/[13C]/[15N]/D), vendor IS sheets,
+  SMILES lookup in SusDat/PubChemLite, Q1/Q4 errors, sub-formula product-ion annotation, label-aware library cosine, Level 1/2a/2b/3/4, isobaric
+  split by library match / batch RT, +-10 ppm integration with S/N + rating, blank check, flags, weighted calibration curves + quantification,
+  natives at the IS RT, RT anchors -> `standards.csv` (`--update-standards`), mass check of the list's Q1, Excel + EIC PDF.
+* Validated on 75 deuterated drug IS in SCIEX X500R SWATH data (VALIDATION.md); `tests/test_targeted.py` (8 tests).
+
+## 0.3.0 (unreleased) - PEC-vs-MEC screening
+* New command `pec-screen`: every identification >= Level 2b (or 1/2a/3 via `--min-level`) in the field-resolved water injections is semi-quantified in water and in grain
+  (project single-reference method, the reference measured with the same integrator on the carbamazepine standard), blank-checked, matched to the same compound in grain
+  (MS2 cosine, per-injection RT-shift estimate), run through the Excel fate model (k_fruit cached; property grid -> PEC range when properties are missing) and compared
+  per field. Outputs: summary classes, per-field table, all detections, properties used, CompTox batch list, Excel + chart.
+* New command `cd-screen`: the same PEC-vs-MEC comparison from the Compound Discoverer sheets of the project workbook (+ combined chart with `pec-screen`, RT identity check between water and grain, merge of names sharing an InChIKey). Module `cdimport`; tests `tests/test_cdimport.py`.
+* RT applicability domain (NORMAN `Uncertainty_RTI`), updated NORMAN workbook support, `tools/metfrag_compare.py` (NORMAN workbook vs SusDat vs PubChemLite, MetFrag product-ion annotation), `tools/rt_models_compare.py` (RTI vs sqrt(RT) vs TPSA/logP corrections); `run_metfrag` returns fragment formulas.
+* Identification filter (`hrms_nts/idfilter.py`): Level 2a + RT-plausible / MassBank-EU-supported 2b; loader for the NORMAN MassBank-EU compound table (`hrms_nts/massbank_eu.py`, handles '|'-joined names and record-code tokens); tests `tests/test_idfilter.py`.
+* Endogenous / biogenic metabolite filter (`hrms_nts/endogenous.py`, `user_data/endogenous_extra.csv`, `--keep-endogenous`); tools `rt_anchor_fit.py`, `rt_check_levels.py`, `metfrag_verify.py`, `id_flags.py` (RT anchors from Level 2a IDs, MetFrag/NORMAN-subset second opinion).
+* Soil sink for pec-screen / cd-screen (`--sink soil`, soil PEC from the fate model, '*' = pooled water field); endogenous filter extended (primary metabolites, dicarboxylic acids, sugar phosphates, polyols, inorganic); offline PSI-MS vocabulary in the mzML reader (no more network aborts while parsing new files); MoNA/MetFrag-format and duplicate-aware library builder.
+* New modules `pecscreen`, `pecreport`, `properties`, `fate`; 10 new tests (`tests/test_pecscreen.py`).
+
 ## 0.2.0 (2026-10-20) - team-ready
 * Layered configuration (`config.yaml` portable defaults <- `config.local.yaml` <- `$HRMS_NTS_CONFIG` <- `--set key=value`); no personal paths in the repo.
 * `validate` command (recovery, ppm/RT accuracy, top-1 rate, false-identification rate with `absent.csv`, semi-quant fold error vs `true_conc_ug_ml`).
@@ -10,3 +33,20 @@
 ## 0.1.0 (2026-10-20) - first working version
 * Levels 5-4-3-2b-2a-1, features/Level 4/RT/MS2/library/in-silico (built-in + MetFrag)/semi-quant/prescreen/reporting.
 * Background-occupancy flag; adduct-consistent library matching; low-mass and background caps on in-silico levels; decoy-adjusted explained-ion counts.
+
+## Level 1-2 / Level 3 separation
+- `pec-screen --min-level 3` keeps tentative (Level 3) identifications; results are written separately per confidence group (`pec_screen_summary_level12.csv`, `..._level3.csv`, per-group charts and Excel sheets).
+- ID-filter labels now name the real level (2b / 3) in `candidates_removed_by_id_filter.csv`.
+
+## PEG/PPG exclusion and MS1-only split
+- New `hrms_nts/polymers.py`: PEG/PPG-type polyether oligomers (name or pure acyclic polyether, no carbonyl, >=3 repeat units, O/C >= 0.3) are excluded from PEC-vs-MEC; listed in `polymers_flagged.csv`. `--keep-polymers` turns it off.
+- Outputs are also split by grain evidence: `pec_screen_summary_grain_ms1only.csv` / `_ms2.csv` with matching charts.
+- `tools/ms1only_figure.py`: PEC-vs-MEC scatter for MS1-only vs MS2-supported chemicals plus apex-intensity comparison.
+
+## Level 4 and per-level outputs
+- `pec-screen --min-level 4` includes formula-only matches (structure = top-ranked database isomer); RT-plausibility filter still applies; fate model runs for Level 4 only where the chemical is detected in water and the solid matrix.
+- Outputs split into Level 1 / Level 2 (2a+2b) / Level 3 / Level 4 (charts + CSV + Excel sheets). Fate cache merges concurrent runs.
+
+## Zwitterions
+- `structure_flags()` now flags zwitterions from structure (acid + amine/amidine/guanidine, betaine, amine N-oxide); `resolve_properties` overrides a table 'Acid/Base/Neutral' type with 'Zwitterion', so the fate model is skipped ("zwitterion - fate model not applicable").
+- `tools/ec_curate.py` drops zwitterionic chemicals from the curated emerging-contaminant set.

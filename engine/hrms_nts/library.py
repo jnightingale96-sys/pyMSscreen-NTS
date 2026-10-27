@@ -17,6 +17,9 @@ CREATE INDEX IF NOT EXISTS idx_ik ON spectra(ik1);
 """
 
 
+_NON_ESI = re.compile(r"GC|GC-|EI|EI-B|EI-EB|EI-TOF|MALDI|DART|CI|DI-EI", re.I)
+
+
 def _iter_msp(path):
     meta, peaks, npk = {}, [], None
     with open(path, "r", encoding="utf-8", errors="replace", buffering=1 << 20) as f:
@@ -55,6 +58,35 @@ def _iter_msp(path):
         yield meta, peaks
 
 
+def _iter_mf_mb(path):
+    """Spectra in the MetFrag offline-library layout (also how the MoNA LC-MS/MS export is stored here): '# SampleName = x', '# InChIKey = ...',
+    '# IsPositiveIonMode = True', '# IonizedPrecursorMass = 237.1', '# NumPeaks = n' followed by 'mz intensity' lines, records separated by a blank line."""
+    meta, peaks = {}, []
+    with open(path, "r", encoding="utf-8", errors="replace", buffering=1 << 20) as f:
+        for line in f:
+            s_ = line.strip()
+            if not s_:
+                if peaks:
+                    yield meta, peaks
+                meta, peaks = {}, []
+                continue
+            if s_.startswith("#"):
+                if "=" in s_:
+                    k, v = s_[1:].split("=", 1); k = k.strip().lower(); v = v.strip()
+                    if k == "samplename": meta["name"] = v
+                    elif k == "inchikey": meta["inchikey"] = v
+                    elif k == "ispositiveionmode": meta["ion_mode"] = "positive" if v.lower() == "true" else "negative"
+                    elif k == "ionizedprecursormass": meta["precursormz"] = v
+                    elif k == "inchi": meta["inchi"] = v
+                continue
+            parts = s_.split()
+            if len(parts) >= 2:
+                try: peaks.append((float(parts[0]), float(parts[1])))
+                except ValueError: pass
+    if peaks:
+        yield meta, peaks
+
+
 def _pol(meta):
     m = (meta.get("ion_mode") or meta.get("ionmode") or "").lower()
     if m.startswith("pos"): return "positive"
@@ -65,8 +97,14 @@ def _pol(meta):
     return ""
 
 
+def _spec_key(ik1, name, pol, pmz, a):
+    """Identity of a spectrum for cross-source duplicate removal: same structure, polarity, precursor (0.01) and the same 8 most intense fragments (0.01 m/z, 5 % intensity steps)."""
+    top = a[np.argsort(a[:, 1])[::-1][:8]]; top = top[np.argsort(top[:, 0])]
+    return hash((ik1 or name.lower(), pol, round(pmz, 2), tuple((round(float(m), 2), int(round(float(i) / 50.0))) for m, i in top)))
+
+
 def build_library(msp_paths, db_path, source_names=None, max_peaks=100, min_peaks=3, limit=None, append=False,
-                  only_esi=True):
+                  only_esi=True, dedupe=False, stats=None):
     if os.path.exists(db_path) and not append:
         os.remove(db_path)
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
@@ -74,11 +112,12 @@ def build_library(msp_paths, db_path, source_names=None, max_peaks=100, min_peak
     con.executescript(SCHEMA)
     ins = ("INSERT INTO spectra(name,inchikey,ik1,smiles,formula,adduct,polarity,precursor_mz,ce,instrument,source,n_peaks,peaks) "
            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
-    total = 0
+    total = 0; seen = set()
     for pi, p in enumerate(msp_paths):
         src = (source_names[pi] if source_names else os.path.splitext(os.path.basename(p))[0])
-        t0 = time.time(); batch = []; kept = skipped = 0
-        for meta, peaks in _iter_msp(p):
+        t0 = time.time(); batch = []; kept = skipped = dups = 0
+        it = _iter_mf_mb(p) if p.lower().endswith(".mb") else _iter_msp(p)
+        for meta, peaks in it:
             try:
                 pmz = float(meta.get("precursormz") or meta.get("precursor_mz") or meta.get("parent") or 0)
             except ValueError:
@@ -87,8 +126,8 @@ def build_library(msp_paths, db_path, source_names=None, max_peaks=100, min_peak
             if pmz <= 0 or len(peaks) < min_peaks or not pol:
                 skipped += 1; continue
             ins_type = (meta.get("instrument_type") or meta.get("instrumenttype") or "")
-            if only_esi and ins_type and "ESI" not in ins_type.upper() and "LC" not in ins_type.upper():
-                skipped += 1; continue
+            if only_esi and ins_type and _NON_ESI.search(ins_type) and "ESI" not in ins_type.upper() and "LC" not in ins_type.upper():
+                skipped += 1; continue                       # GC-EI / MALDI / DART ... spectra are not comparable with LC-ESI MS/MS ('Orbitrap', 'QTOF', 'ITFT' ... are kept)
             if (meta.get("spectrum_type") or "MS2").upper() not in ("MS2", "MS/MS", "MSN"):
                 skipped += 1; continue
             a = np.array(peaks, dtype=np.float64)
@@ -98,6 +137,11 @@ def build_library(msp_paths, db_path, source_names=None, max_peaks=100, min_peak
             a = a[np.argsort(a[:, 0])]
             a[:, 1] = a[:, 1] / a[:, 1].max() * 1000.0
             ik = (meta.get("inchikey") or "").strip()
+            if dedupe:
+                key = _spec_key(ik.split("-")[0], meta.get("name", ""), pol, pmz, a)
+                if key in seen:
+                    dups += 1; continue
+                seen.add(key)
             add = normalize_adduct(meta.get("precursor_type") or meta.get("precursortype") or "")
             batch.append((meta.get("name", "")[:200], ik, ik.split("-")[0], meta.get("smiles", ""), meta.get("formula", ""), add, pol,
                           pmz, meta.get("collision_energy") or meta.get("collisionenergy") or "", ins_type[:60], src, len(a),
@@ -110,7 +154,8 @@ def build_library(msp_paths, db_path, source_names=None, max_peaks=100, min_peak
         if batch:
             con.executemany(ins, batch); con.commit()
         total += kept
-        log.info("library %-28s kept %7d skipped %7d (%.0fs)", src, kept, skipped, time.time() - t0)
+        log.info("library %-28s kept %7d skipped %7d duplicates %7d (%.0fs)", src, kept, skipped, dups, time.time() - t0)
+        if stats is not None: stats.append(dict(source=src, file=p, kept=kept, skipped=skipped, duplicates=dups, seconds=round(time.time() - t0)))
     con.close()
     return total
 
@@ -137,6 +182,28 @@ def cosine(q_mz, q_int, l_mz, l_int, tol_da=0.01, tol_ppm=20.0, int_pow=0.5, mz_
             continue
         ui.add(i); uj.add(j); tot += p; n += 1
     return float(tot / (nq * nl)), n
+
+
+def fill_inchikeys_from_smiles(db_path, batch=20000):
+    """Spectra whose record carries a SMILES but no InChIKey (common in GNPS / PlaSMA) cannot be linked to a candidate structure; derive the key with RDKit.  Returns the number filled."""
+    from rdkit import Chem, RDLogger
+    from rdkit.Chem.inchi import MolToInchiKey
+    RDLogger.DisableLog("rdApp.*")
+    con = sqlite3.connect(db_path); cache = {}; filled = 0
+    rows = con.execute("SELECT id, smiles FROM spectra WHERE ik1='' AND smiles<>''").fetchall()
+    upd = []
+    for i, smi in rows:
+        if smi not in cache:
+            try:
+                m = Chem.MolFromSmiles(smi); cache[smi] = MolToInchiKey(m) if m is not None else ""
+            except Exception:
+                cache[smi] = ""
+        k = cache[smi]
+        if k: upd.append((k, k.split("-")[0], i)); filled += 1
+        if len(upd) >= batch:
+            con.executemany("UPDATE spectra SET inchikey=?, ik1=? WHERE id=?", upd); con.commit(); upd = []
+    if upd: con.executemany("UPDATE spectra SET inchikey=?, ik1=? WHERE id=?", upd); con.commit()
+    con.close(); return filled
 
 
 class SpectralLibrary:

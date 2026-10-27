@@ -29,13 +29,21 @@ function EngineStatus({ theme, info, error }) {
   const [open, setOpen] = useState(false);
   if (error) return <ErrorBox theme={theme} error={`Engine not available: ${error}`} />;
   if (!info) return null;
-  const missing = info.checks.filter((c) => !c.found && !['paths.user_compounds', 'paths.inhouse_msp'].includes(c.item));
+  const missing = info.checks.filter((c) => !c.found && !['paths.user_compounds', 'paths.inhouse_msp', 'paths.library_sources_dir'].includes(c.item));
   return (
     <Panel theme={theme} title={`Engine: hrms_nts ${info.version}`}
       right={<Btn theme={theme} onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'} data sources</Btn>}>
       <div style={{ color: missing.length ? theme.dangerText : theme.ok }}>
         {missing.length ? `Missing: ${missing.map((m) => m.item).join(', ')} (edit engine/config.local.yaml)` : 'All data sources found.'}
       </div>
+      {info.library && (
+        <div style={{ color: theme.muted, fontSize: '0.88rem', marginTop: 4 }}>
+          MS/MS spectral library: <b style={{ color: theme.text }}>{info.library.n_spectra.toLocaleString()}</b> spectra
+          {info.library.unique_structures ? `, ${info.library.unique_structures.toLocaleString()} structures` : ''}
+          {info.library.sources?.length ? ` from ${info.library.sources.length} libraries (MassBank, MS-DIAL, MoNA, GNPS…)` : ''}
+          {info.library.built ? ` · built ${info.library.built.slice(0, 10)}` : ''}
+        </div>
+      )}
       {open && (
         <table style={{ marginTop: 10, fontSize: '0.85rem', borderCollapse: 'collapse' }}>
           <tbody>
@@ -70,7 +78,7 @@ function RunPanel({ theme, info, onFinished }) {
       const r = await ntsListMzml(folder);
       setFiles(r.data.files);
       setChosen(r.data.files.map((f) => f.name));
-      if (!r.data.files.length) setErr('No .mzML files in this folder. Convert Thermo .raw files first (msconvert or ThermoRawFileParser, centroided).');
+      if (!r.data.files.length) setErr('No .mzML files in this folder. Convert vendor raw files first (Thermo: ThermoRawFileParser; SCIEX .wiff2: ProteoWizard msconvert).');
     } catch (e) {
       setFiles([]);
       setErr(apiError(e));
@@ -94,7 +102,7 @@ function RunPanel({ theme, info, onFinished }) {
   return (
     <Panel theme={theme} title="1 · Run non-target screening">
       <Row>
-        <Field theme={theme} label="Folder with centroided mzML files (DDA: MS1 + MS2)">
+        <Field theme={theme} label="Folder with mzML files (MS1 + MS2; DDA or DIA/SWATH; centroid or profile)">
           <TextInput theme={theme} value={folder} onChange={setFolder} placeholder="C:\\Users\\me\\data\\maize_mzML" />
         </Field>
         <Btn theme={theme} onClick={list}>List mzML files</Btn>

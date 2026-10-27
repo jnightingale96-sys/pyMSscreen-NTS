@@ -1,0 +1,14 @@
+# PEC-screen sample map.  One row per mzML injection.
+#   file      path (absolute, or relative to this CSV)
+#   matrix    water | grain
+#   field     the field / plot label that pairs a water injection with its grain injection(s); leave empty for blanks
+#   role      sample | blank (wash, procedural, control: used for the blank check of that matrix) | exclude (listed but not used - say why in note)
+#   polarity  optional (positive|negative); otherwise guessed from the file name
+file,matrix,field,role,polarity,note
+water/blank_wash.mzML,water,,blank,positive,solvent wash
+water/field_A_POS.mzML,water,A,sample,positive,irrigation water field A (SPE-enriched)
+water/field_B_POS.mzML,water,B,sample,positive,irrigation water field B
+water/field_C_POS.mzML,water,C,exclude,positive,injection unrepresentative - ion load 3x others
+grain/blank_wash.mzML,grain,,blank,positive,solvent wash run with the grain extracts
+grain/maize_A_POS.mzML,grain,A,sample,positive,grain extract field A
+grain/maize_B_POS.mzML,grain,B,sample,positive,grain extract field B

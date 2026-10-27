@@ -35,7 +35,7 @@ TOP_COLUMNS = ["sample", "feature_id", "level", "confidence_score", "name", "for
                "rt_apex", "std_rt_diff", "rt_agree", "rt_conflict", "lib_score", "lib_matched", "lib_name", "bi_score",
                "bi_expl_adj_n", "mf_score", "iso_score", "max_int", "area", "background_flag", "blank_flag",
                "stereo_ambiguous", "level_basis", "smiles", "inchikey"]
-DOWNLOADABLE = (".csv", ".xlsx", ".log", ".png", ".yaml", ".json")
+DOWNLOADABLE = (".csv", ".xlsx", ".log", ".png", ".yaml", ".json", ".pdf")
 
 _JOBS = {}
 _JOBS_LOCK = threading.Lock()
@@ -96,13 +96,30 @@ def info():
     except Exception as e:
         return jsonify({"error": f"Could not load engine config: {e}"}), 500
     checks = []
-    for k in ("susdat", "pubchemlite", "user_compounds", "library_db", "standards", "calibrants", "metfrag_jar", "inhouse_msp"):
+    for k in ("susdat", "pubchemlite", "user_compounds", "library_db", "library_sources_dir", "standards", "calibrants", "metfrag_jar", "inhouse_msp"):
         p = resolve(cfg, cfg["paths"].get(k))
         checks.append({"item": f"paths.{k}", "path": p, "found": bool(p and os.path.exists(p))})
-    checks.append({"item": "java (MetFrag)", "path": shutil.which(cfg["paths"].get("java", "java")), "found": bool(shutil.which(cfg["paths"].get("java", "java")))})
+    from hrms_nts.insilico import metfrag_available
+    mf_ok, _, java = metfrag_available(cfg)          # resolves a bundled/relative JRE (e.g. data/jre/bin/java.exe)
+    checks.append({"item": "java (MetFrag)", "path": shutil.which(java), "found": bool(mf_ok)})
     sq = cfg["semiquant"]
+    library = None
+    lib_path = resolve(cfg, cfg["paths"].get("library_db"))
+    if lib_path and os.path.exists(lib_path):
+        import json
+        import sqlite3
+        con = sqlite3.connect(lib_path)
+        library = {"path": lib_path, "n_spectra": con.execute("select count(*) from spectra").fetchone()[0]}
+        con.close()
+        man = os.path.join(os.path.dirname(lib_path), "spectral_library_manifest.json")
+        if os.path.exists(man):
+            with open(man, encoding="utf-8") as f:
+                m = json.load(f)
+            library.update(built=m.get("built"), unique_structures=m.get("main", {}).get("unique_structures"),
+                           sources=[s["source"] for s in m.get("main", {}).get("by_source", [])])
     return jsonify({
         "version": __version__,
+        "library": library,
         "default_working_dir": BASE_WORKING_DIR,
         "config_layers": cfg.get("_config_layers", []),
         "checks": checks,
@@ -174,6 +191,61 @@ def start_calibrate():
     return jsonify({"job_id": job_id, "out": out_csv})
 
 
+# ------------------------------------------------------------------------------------------------ targeted screen (IS / targets / calibrants)
+@nts_bp.route("/start_targeted", methods=["POST"])
+def start_targeted():
+    """body: folder, files[], list (CSV/XLSX), blanks[] (file names), sample_sheet, q1_ppm, q4_ppm, min_apex, polarity,
+    update_standards, out_dir."""
+    body = request.get_json(force=True) or {}
+    folder = resolve_path((body.get("folder") or "").strip())
+    if not os.path.isdir(folder):
+        return jsonify({"error": f"mzML folder not found: {folder}"}), 400
+    files = [os.path.join(folder, n) for n in (body.get("files") or []) if os.path.exists(os.path.join(folder, n))]
+    if not files:
+        return jsonify({"error": "Select at least one mzML file."}), 400
+    lst = resolve_path((body.get("list") or "").strip())
+    if not lst or not os.path.isfile(lst):
+        return jsonify({"error": f"Compound list not found: {lst}"}), 400
+    out = resolve_path((body.get("out_dir") or "").strip()) or os.path.join(
+        folder, "targeted_out_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(out, exist_ok=True)
+    args = ["targeted", *files, "--list", lst, "--out", out, "--polarity", body.get("polarity", "auto")]
+    blanks = [os.path.splitext(b)[0] for b in (body.get("blanks") or [])]
+    if blanks:
+        args += ["--blank", *blanks]
+    sheet = resolve_path((body.get("sample_sheet") or "").strip())
+    roles = body.get("roles") or {}
+    if roles and not (sheet and os.path.isfile(sheet)):          # roles chosen on the page -> sample sheet in the results folder
+        sheet = os.path.join(out, "sample_sheet.csv")
+        pd.DataFrame([{"file": os.path.splitext(n)[0], "type": r.get("type", "sample"), "conc": r.get("conc") or None}
+                      for n, r in roles.items()]).to_csv(sheet, index=False)
+    if sheet and os.path.isfile(sheet):
+        args += ["--sample-sheet", sheet]
+    for k in ("q1_ppm", "q4_ppm", "min_apex"):
+        if body.get(k):
+            args += ["--" + k.replace("_", "-"), str(float(body[k]))]
+    if body.get("update_standards"):
+        args.append("--update-standards")
+    job_id = _start_job("targeted", args, os.path.join(out, "gui_targeted.log"), out, n_files=len(files))
+    return jsonify({"job_id": job_id, "out_dir": out})
+
+
+@nts_bp.route("/targeted_results", methods=["GET"])
+def targeted_results():
+    run_dir = _run_dir_arg()
+    if not run_dir:
+        return jsonify({"error": "results folder not found"}), 400
+    x = os.path.join(run_dir, "targeted_results.xlsx")
+    if not os.path.exists(x):
+        return jsonify({"error": "targeted_results.xlsx not found"}), 404
+    sheets = pd.read_excel(x, sheet_name=None)
+    keep = ("Detected", "Blank_check", "Not_detected", "Calibration", "Quantification", "Native_at_IS_RT", "RT_anchors", "Notes", "Files")
+    out = {k: _clean_records(v) for k, v in sheets.items() if k in keep}
+    out["files"] = [f for f in ("targeted_results.xlsx", "EIC_integration_QC.pdf", "rt_anchors_for_standards.csv",
+                                "calibrants_for_semiquant.csv", "run.log") if os.path.exists(os.path.join(run_dir, f))]
+    return jsonify(out)
+
+
 @nts_bp.route("/job", methods=["GET"])
 def job():
     job_id = request.args.get("job_id", "")
@@ -194,6 +266,9 @@ def job():
         if state == "done" and j["kind"] == "run" and j["n_files"] and failed >= j["n_files"]:
             state = "error"          # the CLI exits 0 even when every sample failed
     progress = None
+    if j["kind"] == "targeted" and j["n_files"]:
+        screened = sum(1 for ln in lines if "targeted: " in ln and " | " in ln)
+        progress = 100 if state == "done" else round(90 * min(screened, j["n_files"]) / j["n_files"])
     if j["kind"] == "run" and j["n_files"]:
         progress = 100 if state == "done" else round(95 * min(done_samples + failed, j["n_files"]) / j["n_files"])
     res = dict(id=job_id, kind=j["kind"], state=state, returncode=rc, out=j["out"], started_at=j["started_at"],

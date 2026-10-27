@@ -144,10 +144,25 @@ def load_config(path: str | None = None, overrides: dict | None = None) -> dict:
                 cfg = _deep_merge(cfg, yaml.safe_load(f) or {}); used.append(os.path.abspath(lp))
     if overrides:
         cfg = _deep_merge(cfg, overrides)
+    cfg["_overrides"] = overrides or {}          # re-applied after an instrument profile (config_for_file), so --set always wins
     cfg["_config_path"] = path
     cfg["_config_layers"] = used
     cfg["_root"] = os.path.dirname(path)
     return cfg
+
+
+def config_for_file(cfg: dict, path: str) -> dict:
+    """cfg with the instrument profile of this mzML merged on top (instrument.type: auto -> detected from the mzML header).
+    Profiles live in config.yaml under instrument.profiles (e.g. sciex_qtof: low-count TOF thresholds)."""
+    from .mzml_io import detect_instrument
+    ic = cfg.get("instrument", {}) or {}
+    fam = ic.get("type", "auto")
+    if fam in (None, "auto"):
+        fam = detect_instrument(path)[0]
+    prof = (ic.get("profiles") or {}).get(fam)
+    out = _deep_merge(_deep_merge(cfg, prof), cfg.get("_overrides") or {}) if prof else dict(cfg)
+    out["_instrument"] = fam
+    return out
 
 
 def resolve(cfg: dict, p: str | None) -> str | None:

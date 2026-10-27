@@ -1,0 +1,4 @@
+# Property table for pec-screen.  Match order: ik1 (InChIKey block 1) > cas > name.  Leave a cell empty if unknown - the chemical is then run over a
+# property GRID and reported as a PEC range.  A CompTox Dashboard batch-search export (OPERA columns) can be passed directly instead / as well.
+name,ik1,cas,smiles,mw,logkow,pka_acid,pka_base,type,kaw,vp_pa,solubility_mg_L,henry_atm_m3_mol,biowin4,dt50_soil_d,k_fruit,source
+Carbamazepine,FFGPTBGBLSHEPO,298-46-4,NC(=O)N1c2ccccc2C=Cc2ccccc12,236.27,2.67,13.6,,Neutral,1e-12,,17.66,,3.5068,,,example

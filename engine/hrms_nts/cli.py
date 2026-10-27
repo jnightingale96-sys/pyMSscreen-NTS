@@ -1,5 +1,5 @@
 """Command line:  python -m hrms_nts <command> [options]
-  doctor | build-library | run | validate | prescreen | predict-ions | calibrate | convert
+  doctor | build-library | run | targeted | pec-screen | cd-screen | validate | prescreen | predict-ions | calibrate | convert
 Global options: --config FILE   --set section.key=value (repeatable, YAML value)   --version"""
 from __future__ import annotations
 import argparse, glob, os, sys, logging, datetime, json, subprocess, shutil
@@ -38,11 +38,27 @@ def cmd_doctor(a, cfg):
         print(f"  {'[ok]' if p and os.path.exists(p) else '[--]'}  paths.{k}: {p}")
     for p in cfg["paths"].get("library_msp") or []:
         print(f"  {'[ok]' if os.path.exists(resolve(cfg, p)) else '[--]'}  library_msp: {p}")
-    print("  java:", shutil.which(cfg["paths"].get("java", "java")) or "NOT FOUND (MetFrag engine disabled; built-in predictor still works)")
+    sd = resolve(cfg, cfg["paths"].get("library_sources_dir"))
+    print(f"  {'[ok]' if sd and os.path.isdir(sd) else '[--]'}  paths.library_sources_dir: {sd}  (only needed to rebuild the library)")
+    lib = resolve(cfg, cfg["paths"]["library_db"])
+    if lib and os.path.exists(lib):
+        import sqlite3
+        con = sqlite3.connect(lib); n = con.execute("select count(*) from spectra").fetchone()[0]; con.close()
+        print(f"        spectral library: {n:,} spectra")
+    print("  java:", shutil.which((lambda j: resolve(cfg, j) if os.path.exists(resolve(cfg, j) or "") else j)(cfg["paths"].get("java", "java"))) or "NOT FOUND (MetFrag engine disabled; built-in predictor still works)")
 
 
 def cmd_build_library(a, cfg):
     from .library import build_library
+    src_dir = resolve(cfg, cfg["paths"].get("library_sources_dir"))
+    if src_dir and os.path.isdir(src_dir) and not a.only:
+        # full rebuild: MassBank + MS-DIAL + MoNA + GNPS, de-duplicated, with manifest and self-check (hrms_nts.library_build)
+        from .library_build import rebuild
+        m = rebuild(resolve(cfg, cfg["paths"]["library_db"]), src_dir, resolve(cfg, cfg["paths"].get("inhouse_msp")),
+                    lipids=not a.no_lipids, limit=a.limit)
+        print(f"library built: {m['main']['n_spectra']} spectra, {m['main']['unique_structures']} structures -> {cfg['paths']['library_db']}")
+        print("self-check top-1:", sum(c.get("top1_ok", False) for c in m["sanity_searches"]), "of", len(m["sanity_searches"]))
+        return
     msps = [resolve(cfg, p) for p in (cfg["paths"].get("library_msp") or [])]
     src = [os.path.splitext(os.path.basename(p))[0] for p in msps]
     if a.only:
@@ -103,6 +119,28 @@ def cmd_run(a, cfg):
     print(f"\nresults: {out}\n  Excel: {res['xlsx']}")
 
 
+def cmd_pec_screen(a, cfg):
+    from .pecreport import run_pec_screen
+    out = a.out or os.path.join(os.getcwd(), "PEC_screen_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(out, exist_ok=True)
+    setup_logging(logfile=os.path.join(out, "run.log"))
+    if a.grain_identity: cfg["pec_screen"]["grain_identity"] = a.grain_identity
+    if a.keep_endogenous: cfg["pec_screen"]["exclude_endogenous"] = False
+    if a.keep_polymers: cfg["pec_screen"]["exclude_polymers"] = False
+    if a.no_id_filter: cfg["pec_screen"]["id_filter"]["enabled"] = False
+    run_pec_screen(cfg, a.map, out, a.min_level, not a.no_reuse, a.properties, a.no_fate, sink=a.sink)
+
+
+def cmd_cd_screen(a, cfg):
+    from .pecreport import run_cd_screen
+    out = a.out or os.path.join(os.getcwd(), "CD_PEC_screen_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(out, exist_ok=True)
+    setup_logging(logfile=os.path.join(out, "run.log"))
+    if a.keep_endogenous: cfg["pec_screen"]["exclude_endogenous"] = False
+    if a.keep_polymers: cfg["pec_screen"]["exclude_polymers"] = False
+    run_cd_screen(cfg, a.workbook, out, a.properties, a.no_fate, combine_with=a.combine_with, sink=a.sink)
+
+
 def cmd_validate(a, cfg):
     from .validate import validate
     rep, summ = validate(a.results, a.expected, a.absent, a.rt_tol, a.out)
@@ -124,7 +162,8 @@ def cmd_prescreen(a, cfg):
     setup_logging(logfile=os.path.join(out, "run.log"))
     allr = []
     for f in files:
-        run = mzml_io.read_mzml(f, None, cfg["ms1"]["store_min_intensity"], cache_dir=resolve(cfg, cfg["paths"].get("cache_dir")))
+        from .common import config_for_file
+        run = mzml_io.read_for_config(f, config_for_file(cfg, f))
         run.polarity = a.polarity if a.polarity != "auto" else (guess_polarity(f, cfg.get("polarity_patterns")) or run.polarity or "positive")
         allr.append(prescreen(run, comp, a.adducts.split(",") if a.adducts else None, a.ppm, a.ms1_thresh, a.ms2_thresh, a.s2n, a.rt_tol))
     res = pd.concat(allr, ignore_index=True)
@@ -160,12 +199,40 @@ def cmd_calibrate(a, cfg):
     from . import mzml_io
     from .common import guess_polarity
     cal = calibrants_table(resolve(cfg, cfg["paths"]["calibrants"]) if not a.calibrants else a.calibrants)
-    run = mzml_io.read_mzml(a.mzml, None, cfg["ms1"]["store_min_intensity"], cache_dir=resolve(cfg, cfg["paths"].get("cache_dir")))
+    from .common import config_for_file
+    run = mzml_io.read_for_config(a.mzml, config_for_file(cfg, a.mzml))
     run.polarity = a.polarity if a.polarity != "auto" else (guess_polarity(a.mzml) or run.polarity or "positive")
     res = measure_calibrants(run, cal)
     print(res.to_string(index=False))
     if a.out:
         res.to_csv(a.out, index=False); print("->", a.out, "(copy the 'area' column into calibrants.csv / config single_reference.area)")
+
+
+def cmd_targeted(a, cfg):
+    """Internal standards / targets / calibrants: Q1 + Q4 errors, levels, integration QC, blank check, calibration, RT anchors."""
+    from .targeted import run_targeted
+    files = _files(a.input)
+    if not files:
+        sys.exit("no .mzML files found")
+    for k, v in (("q1_ppm", a.q1_ppm), ("q4_ppm", a.q4_ppm), ("min_apex", a.min_apex)):
+        if v is not None:
+            cfg["targeted"][k] = v; cfg.setdefault("_overrides", {}).setdefault("targeted", {})[k] = v
+    out = a.out or os.path.join(os.getcwd(), "targeted_out_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(out, exist_ok=True)
+    setup_logging(logfile=os.path.join(out, "run.log"))
+    log.info("hrms_nts %s targeted | %d file(s) | list=%s | out=%s", __version__, len(files), a.list, out)
+    r = run_targeted(files, a.list, out, cfg, sheet=a.sample_sheet, blanks=a.blank, polarity=a.polarity, use_library=not a.no_library,
+                     use_db=not a.no_db, update_standards=a.update_standards, plots=not a.no_plots)
+    ch = r["assigned"]
+    print("\n=== TARGETED SUMMARY ===")
+    print(r["info"][["file", "instrument", "acquisition", "polarity", "role"]].to_string(index=False))
+    if len(ch):
+        print("\ncompounds found per file:", ch.groupby("file").name.nunique().to_dict())
+        print("levels:", ch.level.value_counts().to_dict())
+        print(f"Q1 error: median {ch.ppm.median():+.2f} ppm, {(ch.ppm.abs() <= cfg['targeted']['q1_ppm']).mean() * 100:.0f} % within {cfg['targeted']['q1_ppm']:g} ppm")
+    if len(r["blank"]):
+        print("blank:", r["blank"].verdict.str.split(" (", regex=False).str[0].value_counts().to_dict())
+    print(f"\nresults: {out}\n  Excel: {r['xlsx']}")
 
 
 def cmd_convert(a, cfg):
@@ -183,13 +250,22 @@ def main(argv=None):
     ap.add_argument("--version", action="version", version=f"hrms_nts {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor")
-    p = sub.add_parser("build-library"); p.add_argument("--only", nargs="*"); p.add_argument("--limit", type=int)
+    p = sub.add_parser("build-library", help="all databases under paths.library_sources_dir (de-duplicated); --only = just the listed paths.library_msp files")
+    p.add_argument("--only", nargs="*"); p.add_argument("--limit", type=int); p.add_argument("--no-lipids", action="store_true")
     p = sub.add_parser("run")
     p.add_argument("input", nargs="+", help="mzML files / folders / globs")
     p.add_argument("--out"); p.add_argument("--matrix", default="water", help="water|grain|soil|extract (see config semiquant.matrices)")
     p.add_argument("--polarity", default="auto", choices=["auto", "positive", "negative"])
     p.add_argument("--semiquant", choices=["single", "logie", "curve", "none"]); p.add_argument("--insilico", choices=["builtin", "metfrag", "both", "none"])
     p.add_argument("--ppm", type=float); p.add_argument("--min-intensity", type=float); p.add_argument("--no-library", action="store_true")
+    p = sub.add_parser("pec-screen", help="PEC (semi-quant water + fate model) vs MEC (semi-quant grain) for every identification >= --min-level")
+    p.add_argument("map", help="sample map CSV: file,matrix(water|grain),field,role(sample|blank|exclude)[,polarity,note]")
+    p.add_argument("--out"); p.add_argument("--min-level", choices=["1", "2a", "2b", "3", "4"]); p.add_argument("--properties", action="append", help="properties CSV/XLSX (toolkit format or CompTox batch export; 'file.xlsx::Sheet'); repeatable, first match wins")
+    p.add_argument("--no-reuse", action="store_true", help="re-run the identification instead of reusing <out>/_ident"); p.add_argument("--no-fate", action="store_true", help="skip PEC (tables of water/grain only)")
+    p.add_argument("--grain-identity", choices=["ms2_or_ms1", "ms2"]); p.add_argument("--sink", choices=["grain", "soil"], help="solid matrix compared with the PEC (default: config pec_screen.sink)"); p.add_argument("--keep-polymers", action="store_true", help="do not exclude PEG/PPG oligomers"); p.add_argument("--keep-endogenous", action="store_true", help="do not exclude plant-endogenous metabolites"); p.add_argument("--no-id-filter", action="store_true", help="keep every Level 2b (default: 2a + RT-plausible / MassBank-EU-supported 2b)")
+    p = sub.add_parser("cd-screen", help="PEC vs MEC from the Compound Discoverer semi-quant sheets of the project workbook (optionally combined with a pec-screen folder)")
+    p.add_argument("workbook"); p.add_argument("--out"); p.add_argument("--properties", action="append"); p.add_argument("--no-fate", action="store_true")
+    p.add_argument("--combine-with", help="a pec-screen output folder: writes combined table + chart with the toolkit results"); p.add_argument("--keep-polymers", action="store_true", help="do not exclude PEG/PPG oligomers"); p.add_argument("--keep-endogenous", action="store_true"); p.add_argument("--sink", choices=["grain", "soil"])
     p = sub.add_parser("validate", help="score a results folder against expected.csv (and optionally absent.csv)")
     p.add_argument("results"); p.add_argument("expected"); p.add_argument("--absent"); p.add_argument("--rt-tol", type=float, default=0.3); p.add_argument("--out")
     p = sub.add_parser("prescreen"); p.add_argument("compounds"); p.add_argument("input", nargs="+"); p.add_argument("--out")
@@ -200,6 +276,18 @@ def main(argv=None):
     p.add_argument("--adduct", default="[M+H]+"); p.add_argument("--top", type=int, default=15); p.add_argument("--out")
     p = sub.add_parser("calibrate"); p.add_argument("mzml"); p.add_argument("--calibrants"); p.add_argument("--polarity", default="auto"); p.add_argument("--out")
     p = sub.add_parser("convert"); p.add_argument("input"); p.add_argument("out"); p.add_argument("--trfp")
+    p = sub.add_parser("targeted", help="screen internal standards / targets / calibrants: Q1/Q4 mass errors, levels, integration QC, blanks, calibration")
+    p.add_argument("input", nargs="+", help="mzML files / folders / globs (DDA or DIA/SWATH, centroid or profile)")
+    p.add_argument("--list", required=True, help="compound list CSV/XLSX: name + formula (may contain [2H]/[13C]/D) or SMILES (+ label/nD/n13C); optional role, Q1, rt, is_name, polarity")
+    p.add_argument("--out"); p.add_argument("--sample-sheet", help="CSV/XLSX: file,type(sample|blank|cal|qc),conc  - cal levels give calibration curves")
+    p.add_argument("--blank", nargs="*", help="blank file names or patterns, e.g. --blank eq5 '*blank*'")
+    p.add_argument("--polarity", default="auto", choices=["auto", "positive", "negative"])
+    p.add_argument("--q1-ppm", type=float, help="precursor acceptance (default config targeted.q1_ppm = 5)")
+    p.add_argument("--q4-ppm", type=float, help="product-ion acceptance (default config targeted.q4_ppm = 10)")
+    p.add_argument("--min-apex", type=float, help="candidate peak threshold (counts; default from the instrument profile)")
+    p.add_argument("--no-library", action="store_true"); p.add_argument("--no-db", action="store_true", help="do not load SusDat/PubChemLite (faster; no SMILES lookup / RT models)")
+    p.add_argument("--update-standards", action="store_true", help="append the RTs of detected labelled standards to user_data/standards.csv (RT models / Level 1)")
+    p.add_argument("--no-plots", action="store_true")
     a = ap.parse_args(argv)
     import yaml
     ov = {}
@@ -214,8 +302,8 @@ def main(argv=None):
     setup_logging()
     from rdkit import RDLogger
     RDLogger.DisableLog("rdApp.*")      # database SMILES that RDKit rejects are skipped; per-structure parse errors only flood run.log
-    {"doctor": cmd_doctor, "build-library": cmd_build_library, "run": cmd_run, "validate": cmd_validate, "prescreen": cmd_prescreen,
-     "predict-ions": cmd_predict, "calibrate": cmd_calibrate, "convert": cmd_convert}[a.cmd](a, cfg)
+    {"doctor": cmd_doctor, "build-library": cmd_build_library, "run": cmd_run, "pec-screen": cmd_pec_screen, "cd-screen": cmd_cd_screen, "validate": cmd_validate, "prescreen": cmd_prescreen,
+     "predict-ions": cmd_predict, "calibrate": cmd_calibrate, "convert": cmd_convert, "targeted": cmd_targeted}[a.cmd](a, cfg)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ export const ntsInfo = () => axios.get(`${API_BASE}/nts/info`);
 export const ntsListMzml = (folder) => axios.get(`${API_BASE}/nts/list_mzml`, { params: { folder } });
 export const ntsStartRun = (payload) => axios.post(`${API_BASE}/nts/start_run`, payload);
 export const ntsStartCalibrate = (payload) => axios.post(`${API_BASE}/nts/start_calibrate`, payload);
+export const ntsStartTargeted = (payload) => axios.post(`${API_BASE}/nts/start_targeted`, payload);
+export const ntsTargetedResults = (run_dir) => axios.get(`${API_BASE}/nts/targeted_results`, { params: { run_dir } });
 export const ntsJob = (job_id) => axios.get(`${API_BASE}/nts/job`, { params: { job_id } });
 export const ntsCancel = (job_id) => axios.post(`${API_BASE}/nts/cancel`, { job_id });
 export const ntsRuns = (folder) => axios.get(`${API_BASE}/nts/runs`, { params: { folder } });

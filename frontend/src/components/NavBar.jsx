@@ -8,7 +8,7 @@ import { useTheme } from './nts/ui';
 
 const GROUPS = [
   ['Targeted prescreen (pyMSscreen)', [['/', 'Inputs'], ['/extraction', 'Extraction'], ['/plotting', 'Plotting']]],
-  ['Non-target screening', [['/nts', 'NTS levels'], ['/semiquant', 'Semi-quant'], ['/product-ions', 'Product ions']]],
+  ['Non-target screening', [['/nts', 'NTS levels'], ['/targeted', 'IS / targets'], ['/semiquant', 'Semi-quant'], ['/product-ions', 'Product ions']]],
 ];
 
 export default function NavBar() {

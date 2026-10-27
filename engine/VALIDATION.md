@@ -44,7 +44,24 @@ hrms-nts validate validation/results/<date>_<set> expected.csv --absent absent.c
 4. **Level 2b**: built-in scorer benchmark (`tools/benchmark_insilico.py`): AUC 0.84 (pos) / 0.80 (neg), decoys were not isomers. Repeat with isomeric decoys and with `--insilico both`.
 5. **RT models** (`rt.tolerance_min` = 0.5 min): need >= 8 standards; report the cross-validated RMSE printed in `run.log` and whether +-0.5 min is appropriate (`rt.adaptive_k`).
 6. **Isotope scoring**, **adduct handling** ([M+HCOO]-, [M+Cl]-, [M+CH3COO]- produce many chance candidates for small molecules - see the 120 Da rule) and **Level 1 definition** (`levels.level1_require_inhouse_ms2`).
-7. DIA data are not supported.
+7. DIA (SWATH) support (0.4.0) is validated for the targeted screen (below); the NTS `run` on DIA data still needs a spiked ground-truth
+   set (pseudo-MS2 recovery and false 2a/2b rate vs DDA on the same samples).
+
+## 4b. Targeted screen on SCIEX X500R SWATH data (2026-10-27)
+Data: 75 deuterated / 13C drug internal standards (`examples/drug_IS_pos_75.csv`), SCIEX X500R, ESI+, profile mzML, SWATH 11 windows,
+files BLK1 (IS-spiked QC), TWB_2010pool_1, TWB_2024pool_1 (wastewater pools), eq5 (solvent blank, injected last).
+Reference: an independent hand-run analysis of the same files (same algorithms, different code; DrugIS_simple_Q1_Q4.xlsx).
+* `targeted` reproduced it exactly: 166/166 compound-file detections, identical RT (0 differences > 0.05 min), identical areas (all within 1 %),
+  identical level for 165/166 (Nitrazepam-D5 in one pool 3 vs 4).
+* Q1: median -0.80 ppm, 98 % within 5 ppm (max 5.6 ppm, the most intense peaks - TOF detector saturation); Q4: SD ~6 ppm at SWATH ion counts.
+* Levels (all files): 2a 63, 2b 49, 3 29, 4 12, isobaric-unresolved 13 (morphine/hydromorphone/norcodeine-D3, ephedrine/pseudoephedrine-D3:
+  co-elute at the void), Q1 > 5 ppm 3. Amitriptyline-D3 vs EDDP-D3 and oxymorphone-D3 vs noroxycodone-D3 split correctly by library match /
+  batch RT. Not found: the 7 ESI- compounds (flagged by the acid rule), nicotine/anabasine/anatabine-D4, atenolol-D7, cotinine-D3, OH-cotinine-D3.
+* Blank (eq5): 58/62 no signal, 4 single-scan spikes; the only "significant" is the weak 17-min carboxy-ibuprofen-D3 ESI+ peak, which is
+  background (same signal in the blank) - flagged in Detected.
+* Scan gap 7.20-16.25 min in TWB_2024pool_1 reported automatically.
+* Profile centroiding: synthetic test (`tests/test_targeted.py`) < 2 ppm, one centroid per peak; DIA pseudo-MS2 keeps co-eluting fragments and
+  rejects a same-window interference eluting 0.4 min later.
 
 ## 5. Record every validation run
 Copy `validation_summary.csv`, `provenance.json`, `config_used.yaml` into `validation/results/<date>_<set>/` and add one line to `validation/LOG.md`

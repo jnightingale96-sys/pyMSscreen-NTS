@@ -9,7 +9,7 @@ import os, re, subprocess, shutil, logging, itertools
 from functools import lru_cache
 import numpy as np
 import pandas as pd
-from .common import ELEMENT_MASS, NEUTRAL_LOSSES, PROTON, normalize_adduct
+from .common import ELEMENT_MASS, NEUTRAL_LOSSES, PROTON, normalize_adduct, resolve
 
 log = logging.getLogger("hrms_nts")
 MH = ELEMENT_MASS["H"]
@@ -217,7 +217,10 @@ _METFRAG_MODE = {"[M+H]+": 1, "[M+NH4]+": 18, "[M+Na]+": 23, "[M+K]+": 39, "[M-H
 
 def metfrag_available(cfg):
     jar = (cfg.get("insilico", {}) or {}).get("metfrag_jar") or cfg.get("paths", {}).get("metfrag_jar")
+    jar = resolve(cfg, jar) if jar else jar                      # relative jar path: MetFrag runs in a per-feature work folder
     java = cfg.get("paths", {}).get("java", "java")
+    jp = resolve(cfg, java)
+    if jp and os.path.exists(jp): java = jp                      # bundled / relative JRE path
     return bool(jar and os.path.exists(jar) and shutil.which(java)), jar, java
 
 
@@ -276,4 +279,6 @@ def run_metfrag(cands: pd.DataFrame, peaks_mz, peaks_int, ion_mz, polarity, addu
     out = pd.DataFrame({"db_id": r["Identifier"].astype(str), "mf_score": r["Score"], "mf_frag_score": r.get("FragmenterScore"),
                         "mf_mona": r.get("OfflineIndividualMoNAScore", 0.0), "mf_expl": r.get("NoExplPeaks"),
                         "mf_used": r.get("NumberPeaksUsed")})
+    out["mf_expl_peaks"] = r["ExplPeaks"].astype(str) if "ExplPeaks" in r else ""                 # 'mz_int;mz_int;...'
+    out["mf_expl_formulas"] = r["FormulasOfExplPeaks"].astype(str) if "FormulasOfExplPeaks" in r else ""   # 'mz:[formula]+;...'  = MetFrag product-ion annotation
     return out

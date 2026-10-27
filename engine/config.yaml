@@ -16,6 +16,9 @@ paths:
     - "data/MassBank_NISTformat.msp"
   inhouse_msp: null             # your own standards' MS2 (MSP).  Spectra from here are tagged 'inhouse' -> Level 1
   library_db:  "work/spectral_library.sqlite"
+  # Folder with ALL downloaded MS/MS libraries in the layout massbank/ msdial/ mona/ gnps/ lipidblast/.  When set, `build-library`
+  # rebuilds the full de-duplicated library from it (~970k spectra; hrms_nts/library_build.py) instead of only library_msp.
+  library_sources_dir: null
   standards:   "user_data/standards.csv"   # authentic standards on THIS method: name,smiles,inchikey,rt_pos,rt_neg  (RT model + Level 1)
   calibrants:  "user_data/calibrants.csv"  # semi-quant calibrants: name,smiles,rt,conc_ug_ml,area[,polarity]
   cache_dir:   "work/cache"
@@ -23,6 +26,7 @@ paths:
   metfrag_jar: null             # MetFragCommandLine-*.jar (https://ipb-halle.github.io/MetFrag/)
   metfrag_mb_folder: null       # optional offline MassBank-format folder for MetFrag's OfflineIndividualMoNAScore
   thermorawfileparser: null     # ThermoRawFileParser.exe for the `convert` command
+  fate_model: null              # Model_Worst_Case_PEC_PLANT .xlsm (Excel + pywin32) for `pec-screen`; k_fruit values are cached
 
 polarity_patterns:               # polarity guessed from the file name unless --polarity is given
   positive: '(^|[_\-\. ])(POS|POSITIVE)([_\-\. 0-9]|$)'
@@ -49,6 +53,50 @@ ms2:
   rel_min: 0.01                  # drop peaks < 1 % of base peak
   top_n: 100
   good_int: 2500                 # pyMSscreen-style MS2 intensity QA
+
+# ---- profile data, DIA (SWATH/AIF) and instrument profiles ------------------------------------------------------------------
+centroid:                        # profile spectra are centroided on reading (hrms_nts/centroid.py); centroided files are untouched
+  min_height_ms1: 150            # summed counts over +-3 profile points (SCIEX TOF counts; Orbitrap profile data are far higher)
+  min_height_ms2: 80
+
+dia:                             # MS2 scans with isolation windows wider than min_window_da are DIA (SWATH, AIF, MSE)
+  min_window_da: 5.0
+  corr_min: 0.70                 # fragment XIC vs precursor MS1 XIC (Gaussian-smoothed) Pearson r -> fragment belongs to the feature
+  apex_tol_scans: 3              # fragment apex within +-3 DIA cycles of the precursor apex
+  frag_ppm: 20                   # fragment XIC window
+  max_candidates: 150            # most intense candidate fragments tested per feature
+  min_frag_int: 30
+  min_feature_int: 2000          # NTS run: pseudo-MS2 only for features at least this intense ...
+  max_features: 6000             # ... and at most this many (most intense first) per sample
+
+instrument:
+  type: auto                     # auto (from the mzML header) | sciex_qtof | orbitrap | generic | <your own profile name>
+  profiles:                      # merged over this config for files of that instrument family
+    sciex_qtof:                  # SCIEX X500R / TripleTOF / ZenoTOF: TOF counts are ~100x lower than Orbitrap intensities
+      ms1: {store_min_intensity: 150, min_intensity: 3000}
+      ms2: {good_int: 300}
+      insilico: {frag_tol_ppm: 15}       # SWATH fragment m/z SD ~6 ppm at low ion counts (validated on X500R, 2026-10)
+      pec_screen: {integrate: {apex_floor: 1000}}
+      targeted: {min_apex: 600}
+    orbitrap: {}
+
+# ---- targeted screen: internal standards, targets, calibrants  (python -m hrms_nts targeted) ------------------------------------
+targeted:
+  wide_ppm: 40                   # search window - wide on purpose so a calibration offset cannot hide a compound
+  min_apex: 3000                 # smoothed XIC apex (counts) for a candidate peak (instrument profiles override)
+  max_peaks: 4                   # candidate peaks kept per compound/adduct/file (all reported; best one assigned)
+  rel_height_compete: 0.60       # only peaks >= 60 % of the tallest candidate in a file compete for the assignment
+  integrate_ppm: 10              # final integration window (+-ppm, max centroid per scan)
+  noise_floor: null              # counts; null = centroid.min_height_ms1 (profile data omit zeros, so the baseline is often empty)
+  q1_ppm: 5                      # precursor acceptance (Q1)
+  q4_ppm: 10                     # product-ion acceptance (Q4)
+  annotate_ppm: 15               # product ions annotated as sub-formulae of the (labelled) formula within this window
+  lib_cosine: 0.70               # Level 2a: label-aware library cosine ...
+  lib_min_matched: 3             # ... with at least this many matched product ions
+  blank_trace_pct: 1.0           # blank area < 1 % of the mean sample area = minimal trace
+  blank_low_pct: 5.0             # 1-5 % = low trace, > 5 % = carry-over / contamination
+  calibration_weight: 1/x        # 1/x | 1/x2 | none  (linear calibration of area or area/IS-area vs concentration)
+  min_cal_levels: 3
 
 level4:
   ppm: 5
@@ -114,3 +162,61 @@ semiquant:
 blank:
   samples: []                    # sample names (file stems) of blanks
   ratio: 3.0
+
+# =====================================================================================================================================
+#  pec-screen: PEC (fate model from semi-quantified irrigation water) vs MEC (semi-quantified grain) for every identification >= min_level
+# =====================================================================================================================================
+pec_screen:
+  min_level: 2b                  # 1 | 2a | 2b  (candidates are taken from the WATER samples)
+  reference:                     # single reference measured on a standard injection with the SAME integrator (units cancel)
+    name: Carbamazepine
+    mzml: null                   # standard mzML (positive) containing the reference at conc_ug_mL - set in config.local.yaml
+    mz: 237.10224                # [M+H]+
+    rt: null                     # null = find the peak
+    conc_ug_mL: 0.01
+    area_per_ug_mL: null         # fallback if no mzml (counts.min per ug/mL, from a previous run)
+  water_factor: 120000           # ng/L per ug/mL extract  (= x1000 x120, the project's water formula)
+  grain_factor: 166.6667         # ng/g dw per ug/mL extract (= x0.5 mL / 3 g x1000, the project's grain formula)
+  fruit_to_grain_dw: 0.005       # PEC(ng/g dw) = k_fruit(mg/kg fw per mg/L) x C(ng/L) x this  (1e-6 x 1000 / 0.2 fw->dw)
+  integrate: {half: 0.2, search: 0.15, apex_floor: 3.0e+4}
+  grain_floor_width_min: 0.2     # typical peak width for the grain detection floor (ng/g)
+  blank_ratio: 3.0               # sample apex must exceed ratio x highest blank apex
+  rt_search_wide_min: 0.5        # +- window to look for the peak when estimating the grain RT shift
+  rt_shift: auto                 # auto = median shift of MS2-confirmed anchors per grain injection | number (min) | 0
+  rt_shift_min_anchors: 3
+  rt_shift_min_apex: 3.0e+5
+  ms2_cosine_min: 0.60           # grain/water MS2 agreement = 'MS2 confirmed' (and >= 2 matched fragments)
+  ms2_cosine_conflict: 0.30      # below this with MS2 present = different compound -> not counted
+  grain_identity: ms2_or_ms1     # ms2_or_ms1 (MS1-only matches kept, flagged) | ms2 (confirmed only)
+  within_factor: 10
+  sink: grain                    # grain | soil : the solid matrix compared with the PEC (soil: PEC = k_soil x C_water, steady-state soil concentration of the fate model)
+  soil_factor: 4500              # ng/g dw (= ug/kg) per ug/mL extract - the project's soil formula (Semi quant modelling_Soil: ug/kg dw = 'Normalised' x 4500)
+  soil_pec_to_ng_g: 0.001        # PEC soil (ng/g dw) = k_soil (mg/kg per mg/L) x C_water (ng/L) x 1e-6 x 1000
+  id_filter:                     # keep Level 1/2a; keep a 2b only if RT-plausible or supported by measured MassBank-EU fragments
+    enabled: true
+    anchor_min_cos: 0.8          # library cosine of the Level 1/2a identifications used as RT anchors
+    min_anchors: 8
+    rt_tol_k: 2.0                # RT tolerance = k x leave-one-out RMSE of the anchors ...
+    rt_tol_floor_min: 1.0        # ... but never below this (min)
+    use_applicability_domain: true   # RTI paper: RT only counts inside the RTI model's applicability domain ('Covered by Model'); anchors inside it set the tolerance
+    norman_workbook: null        # optional updated NORMAN table (Updated_NORMAN_with_TPSA.xlsx): RTI, AD flag, TPSA - set in config.local.yaml
+    keep_2b_without_rti: false   # 2b chemicals with no NORMAN Pred_RTI (cannot be RT-checked) are dropped unless MassBank-EU supports them
+    massbank_eu: null            # MassBankEU_Cmpds_*_wMS_DTXSIDs_*.csv (NORMAN) - set in config.local.yaml
+    mb_min_matched: 3
+    mb_min_frac: 0.3
+  exclude_endogenous: true       # plant-endogenous metabolites (amino acids, TCA acids, sugars, oxylipins, flavonoids ...) cannot be read as irrigation uptake
+  endogenous_extra: user_data/endogenous_extra.csv   # optional: name or ik1, category - your own additions
+  cd_rt_tol_min: 0.5             # cd-screen: water vs grain RT difference above this = identity conflict
+  max_interval_width: 100        # PEC high/low wider than this (missing properties) cannot support 'water-explained'
+  corrections: null              # optional CSV (ik1 or name, cf): per-compound water correction factor = targeted / semi-quant
+  properties: null               # CSV/XLSX (toolkit format or CompTox batch export); see docs
+  properties_sheet: null
+  property_grid:                 # used only when properties are missing
+    logkow_delta: [-0.5, 0.0, 0.5]
+    kaw: [1.0e-9, 1.0e-6, 1.0e-4]
+    dt50_soil_d: [10, 60, 365, 1000]
+  fate:
+    depth_m: 0.1                 # mixing depth (Israel set-up)
+    irrigation_L_m2_d: 1.5
+    khsa: 10000
+    cache: work/kfruit_cache.csv

@@ -60,10 +60,20 @@ def sample_polarity(path, cfg, run, forced=None):
 
 
 def process_sample(path, ctx: Context, matrix="water", polarity="auto", out_dir=None, engine=None, semiquant=True) -> dict:
+    """Instrument profile (config instrument.profiles) is applied per file; ctx.cfg is swapped for the duration."""
+    base = ctx.cfg
+    ctx.cfg = common.config_for_file(base, path)
+    try:
+        return _process_sample(path, ctx, matrix, polarity, out_dir, engine, semiquant)
+    finally:
+        ctx.cfg = base
+
+
+def _process_sample(path, ctx: Context, matrix="water", polarity="auto", out_dir=None, engine=None, semiquant=True) -> dict:
     cfg = ctx.cfg; t0 = time.time()
     name0 = os.path.splitext(os.path.basename(path))[0]
-    run = mzml_io.read_mzml(path, None, store_min_intensity=cfg["ms1"]["store_min_intensity"],
-                            cache_dir=resolve(cfg, cfg["paths"].get("cache_dir")))
+    run = mzml_io.read_for_config(path, cfg)
+    log.info("%s: instrument profile '%s', %s acquisition", name0, cfg.get("_instrument", "generic"), run.acquisition)
     run.polarity = sample_polarity(path, cfg, run, polarity)
     pol = run.polarity
     m1 = cfg["ms1"]
@@ -75,8 +85,12 @@ def process_sample(path, ctx: Context, matrix="water", polarity="auto", out_dir=
         return dict(sample=name0, polarity=pol, features=feat, hits=pd.DataFrame(), top=pd.DataFrame())
     feat = F.annotate_relations(feat, m1["feature_ppm"] * 0.7, cfg["ms1"]["relation_rt_tol"])
     m2c = cfg["ms2"]
-    feat = M2.assign_ms2_to_features(feat, run, m2c["precursor_tol_da"], m2c["rt_pad_min"], m2c["merge_scans"], m2c["rel_min"],
-                                     m2c["top_n"], m2c["good_int"])
+    if run.acquisition == "DIA":
+        from .dia import assign_dia_ms2_to_features
+        feat = assign_dia_ms2_to_features(feat, run, cfg)
+    else:
+        feat = M2.assign_ms2_to_features(feat, run, m2c["precursor_tol_da"], m2c["rt_pad_min"], m2c["merge_scans"], m2c["rel_min"],
+                                         m2c["top_n"], m2c["good_int"])
     ad = adduct_table(pol, cfg["level4"].get("adducts_" + pol))
     hits = L4.match_features(feat, ctx.db, ad, cfg["level4"]["ppm"], run, cfg["ms1"]["store_min_intensity"],
                              cfg["level4"]["drop_isotope_peaks"], cfg["level4"]["min_iso_score"], cfg["level4"]["use_isotopes"])

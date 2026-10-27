@@ -45,3 +45,28 @@ def test_metfrag_wrapper(tmp_path):
     r = IS.run_metfrag(c, np.array([167.0730, 180.0808, 192.0808, 194.0964]), np.array([1e4, 2e4, 3e4, 1e5]), 237.1022, "positive", "[M+H]+",
                        str(tmp_path), jar, java, tag="cbz")
     assert not r.empty and float(r["mf_expl"].iloc[0]) >= 3
+
+
+def test_mb_format_and_duplicate_removal(tmp_path):
+    from hrms_nts.library import build_library
+    import sqlite3
+    mb = tmp_path / "mona.mb"
+    mb.write_text("# SampleName = Mecoprop\n# InChIKey = WNTGYJSOUMFZEP-UHFFFAOYSA-N\n# IsPositiveIonMode = False\n# IonizedPrecursorMass = 213.03\n# NumPeaks = 3\n"
+                  "141 100\n105 45\n71 9\n\n")
+    msp = tmp_path / "x.msp"
+    msp.write_text("NAME: Mecoprop\nPRECURSORMZ: 213.03\nPRECURSORTYPE: [M-H]-\nIONMODE: Negative\nINCHIKEY: WNTGYJSOUMFZEP-UHFFFAOYSA-N\nNum Peaks: 3\n141\t1000\n105\t450\n71\t90\n\n"
+                   "NAME: Other\nPRECURSORMZ: 300.1\nPRECURSORTYPE: [M+H]+\nIONMODE: Positive\nINCHIKEY: AAAAAAAAAAAAAA-UHFFFAOYSA-N\nNum Peaks: 3\n100\t1000\n120\t500\n130\t200\n\n")
+    db = tmp_path / "lib.sqlite"; st = []
+    n = build_library([str(mb), str(msp)], str(db), ["mona", "msdial"], dedupe=True, stats=st)
+    con = sqlite3.connect(db); rows = con.execute("select name, source, polarity, precursor_mz from spectra order by id").fetchall(); con.close()
+    assert n == 2 and len(rows) == 2 and rows[0][1] == "mona" and rows[0][2] == "negative"       # the identical MSP copy of Mecoprop is dropped, 'Other' kept
+    assert st[1]["duplicates"] == 1
+
+
+def test_orbitrap_kept_gc_ei_dropped(tmp_path):
+    from hrms_nts.library import build_library
+    msp = tmp_path / "x.msp"
+    peaks = "100\t1000\n120\t500\n130\t200\n\n"
+    rec = lambda n, inst: ("NAME: %s\nPRECURSORMZ: 300.1\nPRECURSORTYPE: [M+H]+\nIONMODE: Positive\nINSTRUMENTTYPE: %s\nINCHIKEY: AAAAAAAAAAAAAA-UHFFFAOYSA-N\nNum Peaks: 3\n" % (n, inst)) + peaks
+    msp.write_text(rec("a", "Orbitrap") + rec("b", "GC-EI-TOF") + rec("c", "LC-ESI-QTOF") + rec("d", "MALDI-TOF"))
+    assert build_library([str(msp)], str(tmp_path / "l.sqlite"), ["t"]) == 2
