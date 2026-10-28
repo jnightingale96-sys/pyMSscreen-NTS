@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { saveState, loadState, generateTable, ntsInfo } from '../api/api';
+import { saveState, loadState, generateTable, ntsInfo, ntsListMzml } from '../api/api';
 import { useAppState } from '../context/AppStateContext';
 import { useNavigate } from 'react-router-dom';
 import RibbonHeader from "../components/RibbonHeader";
@@ -202,6 +202,16 @@ const LandingPage = () => {
     if (appState.working_directory) return;
     ntsInfo().then(r => r.data?.default_working_dir && setWorkingDirectory(r.data.default_working_dir)).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [folderInfo, setFolderInfo] = useState(null);
+  const checkFolder = async () => {
+    try {
+      const r = await ntsListMzml(workingDirectory);
+      const n = r.data.files.length;
+      setFolderInfo({ ok: true, text: `Folder found: ${n} mzML file${n === 1 ? "" : "s"}${n ? ` (${r.data.files.slice(0, 4).map((f) => f.name).join(", ")}${n > 4 ? ", …" : ""})` : ""}.` });
+    } catch (e) {
+      setFolderInfo({ ok: false, text: e?.response?.data?.error || "Folder not found." });
+    }
+  };
   const [compoundCSV, setCompoundCSV] = useState(null);
   const [mzmlFiles, setMzmlFiles] = useState([]);
   const [tags, setTags] = useState({});
@@ -263,7 +273,7 @@ const handleSaveState = async () => {
     alert("State updated and saved successfully!");
   } catch (err) {
     console.error("Save failed:", err);
-    alert("Save failed.");
+    alert("Save failed:\n" + (err?.response?.data?.error || err?.message || "Unknown error"));
   }
 };
 
@@ -458,22 +468,34 @@ useEffect(() => {
           <label style={{ display: "block", marginBottom: 6 }}>
             Working Directory:
           </label>
-          <input
-            type="text"
-            value={workingDirectory}
-            disabled
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "8px 10px",
-              backgroundColor: theme.inputDisabledBg || theme.panelLite,  
-              color: theme.inputDisabledText || theme.text,  
-              opacity: 0.7,               
-              cursor: "not-allowed",       
-              border: `1px solid ${theme.border}`,
-              borderRadius: 6,
-            }}
-          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="text"
+              value={workingDirectory}
+              onChange={(e) => { setWorkingDirectory(e.target.value.trim().replace(/^"|"$/g, "")); setFolderInfo(null); }}
+              placeholder="C:\data\my_run  (folder that contains the compound CSV and mzML files)"
+              style={{
+                flex: 1,
+                boxSizing: "border-box",
+                padding: "8px 10px",
+                backgroundColor: theme.panelLite,
+                color: theme.text,
+                border: `1px solid ${theme.border}`,
+                borderRadius: 6,
+              }}
+            />
+            <button type="button" onClick={checkFolder}
+              style={{ padding: "8px 12px", borderRadius: 6, border: `1px solid ${theme.border}`, background: theme.panelLite,
+                color: theme.text, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+              Check folder
+            </button>
+          </div>
+          {folderInfo && (
+            <div style={{ marginTop: 6, fontSize: "0.85rem", color: folderInfo.ok ? "#22c55e" : "#f87171" }}>{folderInfo.text}</div>
+          )}
+          <div style={{ marginTop: 4, fontSize: "0.8rem", opacity: 0.75 }}>
+            The browser only passes file names, so the compound CSV and mzML files you pick below must be inside this folder.
+          </div>
         </div>
 
       <div>

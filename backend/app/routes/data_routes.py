@@ -11,6 +11,13 @@ from app.config import BASE_WORKING_DIR
 
 data_bp = Blueprint("data", __name__)
 
+
+def _requested_dir():
+    """The working directory the page asked for (native app: any folder), else the server default (Docker: /app/uploads)."""
+    w = (request.args.get("working_directory") or "").strip().strip('"')
+    w = os.path.expanduser(w) if w else ""
+    return w if w and os.path.isdir(w) else BASE_WORKING_DIR
+
 @data_bp.route("/get_csv")
 def get_csv():
 
@@ -98,15 +105,11 @@ def load_comprehensive_table():
     None.
     """
     try:
-        table_path = os.path.join(BASE_WORKING_DIR, "comprehensive_table.csv")
-        print("Requested path:", request.args.get("working_directory"))
-        print(" Resolved path:", table_path)
-        print("Looking for:", table_path)
-
-
-        if not os.path.isdir(BASE_WORKING_DIR):
+        base = _requested_dir()
+        table_path = os.path.join(base, "comprehensive_table.csv")
+        if not os.path.isdir(base):
             return jsonify({
-                "error": f"Base directory not found: {BASE_WORKING_DIR}"
+                "error": f"Working directory not found: {base}"
             }), 400
         if not os.path.isfile(table_path):
             return jsonify([]), 200
@@ -132,9 +135,7 @@ def load_comprehensive_table():
 @data_bp.route('/load_summary_table', methods=['GET'])
 def load_summary_table():
     try:
-        table_path = os.path.join(BASE_WORKING_DIR, "summary_table.csv")
-
-        print("Looking for:", table_path)
+        table_path = os.path.join(_requested_dir(), "summary_table.csv")
 
         if not os.path.exists(table_path):
             return jsonify([])

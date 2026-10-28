@@ -55,9 +55,10 @@ def save_state():
         print("Save request data:", data)
 
         # -- 1) Working directory
-        working_directory = os.path.expanduser(data.get("working_directory", "."))
+        working_directory = os.path.expanduser((data.get("working_directory") or ".").strip().strip('"'))
         if not os.path.isdir(working_directory):
-            return jsonify({"error": "Invalid working directory"}), 400
+            return jsonify({"error": f"Working directory not found: {working_directory}. Type an existing folder "
+                                     "(the one that holds your compound CSV and mzML files)."}), 400
         working_directory = os.path.normpath(working_directory)
 
         # -- 2) Compound CSV (absolute or relative to working_directory)
@@ -98,6 +99,13 @@ def save_state():
             "positive": clean_list(data.get("positive_adducts", [])),
             "negative": clean_list(data.get("negative_adducts", []))
         }
+
+        # The browser only sends file NAMES (it cannot upload or reveal paths), so the files must be in the working directory.
+        missing = [p for p in ([compound_csv] if compound_csv else []) + [m["file"] for m in mzml_files] if not os.path.isfile(p)]
+        if missing:
+            return jsonify({"error": "These files are not in the working directory " + working_directory + ":\n  "
+                                     + "\n  ".join(os.path.basename(p) for p in missing)
+                                     + "\nCopy them into that folder, or change the Working Directory to the folder that contains them."}), 400
 
         # -- 5) Assemble final state
         state = {
