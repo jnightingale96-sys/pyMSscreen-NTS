@@ -27,18 +27,57 @@ close Colab and continue later from any step.
 | 11 | Report (NTS_report.xlsx) and downloads |
 """)
 
-md("## 0 · Setup (once per Colab session, ~3 min)\nUpload `HRMS_NTS_Ultimate_*.zip` to your Google Drive once (e.g. `MyDrive/HRMS_NTS/`). This cell copies it to the Colab machine, installs the Python packages and loads the engine.")
+md("""## 0 · Setup (once per Colab session, ~3 min)
+**GitHub** (default): the engine is cloned from your repository and the databases (`hrms_nts_data.zip`) are downloaded from one of
+its Releases. For a **private** repository add a GitHub token (fine-grained, read-only *Contents* on that repo) as a Colab secret
+named `GH_TOKEN` (key icon on the left) and allow this notebook to read it.
+**Google Drive zip**: the complete package zip (`HRMS_NTS_Ultimate_*.zip`) uploaded to your Drive.""")
 code(r'''
 #@title 0 · Setup { display-mode: "form" }
+SOURCE = "GitHub"  #@param ["GitHub", "Google Drive zip"]
+GITHUB_REPO = "jnightingale96/pyMSscreen-NTS"  #@param {type:"string"}
+GITHUB_BRANCH = "main"  #@param {type:"string"}
+DATA_RELEASE_TAG = "data-v1"  #@param {type:"string"}
 PACKAGE_ZIP = "/content/drive/MyDrive/HRMS_NTS/HRMS_NTS_Ultimate_20261102_v0.5.zip"  #@param {type:"string"}
 from google.colab import drive, output
 drive.mount("/content/drive")
 output.enable_custom_widget_manager()
-import os, sys, zipfile, subprocess, glob
-ROOT = "/content/HRMS_NTS_Ultimate"
-if not os.path.exists(ROOT):
-    print("unzipping the package (1.2 GB) ...")
-    zipfile.ZipFile(PACKAGE_ZIP).extractall("/content")
+import os, sys, zipfile, subprocess, glob, json, urllib.request
+if SOURCE == "GitHub":
+    try:
+        from google.colab import userdata
+        TOKEN = userdata.get("GH_TOKEN")
+    except Exception:
+        TOKEN = ""                                    # public repository
+    ROOT = "/content/pyMSscreen-NTS"
+    if not os.path.exists(ROOT):
+        auth = f"{TOKEN}@" if TOKEN else ""
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "-b", GITHUB_BRANCH, f"https://{auth}github.com/{GITHUB_REPO}.git", ROOT], check=True)
+    data_dir = os.path.join(ROOT, "engine", "data")
+    if not os.path.exists(os.path.join(data_dir, "spectral_library.sqlite")):
+        hdr = {"Authorization": f"Bearer {TOKEN}"} if TOKEN else {}
+        api = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{DATA_RELEASE_TAG}"
+        rel = json.load(urllib.request.urlopen(urllib.request.Request(api, headers=hdr)))
+        asset = next(a for a in rel["assets"] if a["name"].endswith(".zip"))
+        print(f"downloading {asset['name']} ({asset['size'] / 1e9:.2f} GB) ...")
+        req = urllib.request.Request(asset["url"], headers={**hdr, "Accept": "application/octet-stream"})
+        with urllib.request.urlopen(req) as r, open("/content/hrms_nts_data.zip", "wb") as f:
+            while True:
+                b = r.read(1 << 24)
+                if not b: break
+                f.write(b)
+        os.makedirs(data_dir, exist_ok=True)
+        zipfile.ZipFile("/content/hrms_nts_data.zip").extractall(data_dir); os.remove("/content/hrms_nts_data.zip")
+    with open(os.path.join(ROOT, "engine", "config.local.yaml"), "w") as f:      # paths of the downloaded databases
+        f.write('paths:\n  susdat: "data/susdat.csv"\n  pubchemlite: "data/PubChemLite_exposomics.csv"\n  library_msp: []\n'
+                '  library_db: "data/spectral_library.sqlite"\n  metfrag_jar: "data/MetFragCommandLine-2.6.11.jar"\n'
+                '  metfrag_mb_folder: "data/mb_converted"\npec_screen:\n  id_filter:\n    massbank_eu: "data/MassBankEU_compounds.csv"\n'
+                '    norman_workbook: "data/Updated_NORMAN_with_TPSA.xlsx"\n')
+else:
+    ROOT = "/content/HRMS_NTS_Ultimate"
+    if not os.path.exists(ROOT):
+        print("unzipping the package (1.2 GB) ...")
+        zipfile.ZipFile(PACKAGE_ZIP).extractall("/content")
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "rdkit", "pyteomics", "psims", "plotly", "ipywidgets", "requests"], check=True)
 ENGINE = os.path.join(ROOT, "engine")
 if ENGINE not in sys.path:

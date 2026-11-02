@@ -5,12 +5,23 @@ setup → folders → .raw conversion → sample sheet → QA/QC settings → ca
 QA (replicates, QC, blanks, peak rating, presence confidence) → semi-quantification (elucidation distance + CompTox) →
 chromatogram viewer (Q1 / Q3) → report.
 
-## First time
-1. Put the package zip (`HRMS_NTS_Ultimate_*.zip`, 1.2 GB: engine + NORMAN SusDat, PubChemLite, 970k-spectrum MS/MS library,
-   NORMAN RTI table) in your Google Drive, e.g. `MyDrive/HRMS_NTS/`.
-2. Put your data in a Drive folder (`.raw` and/or `.mzML`; one folder per batch). SCIEX `.wiff/.wiff2` must be converted
+## First time - from GitHub (recommended)
+1. The code lives in the GitHub repository; the databases (`hrms_nts_data.zip`, 0.33 GB: NORMAN SusDat, PubChemLite,
+   970k-spectrum MS/MS library, NORMAN RTI table, MassBank-EU) are attached to a Release tagged `data-v1`
+   (build it with `python colab/make_data_zip.py <engine/data> hrms_nts_data.zip`).
+2. Open the notebook straight from GitHub: in Colab, *File → Open notebook → GitHub*, tick *Include private repos* if the repository
+   is private, choose `colab/HRMS_NTS_Colab.ipynb`. For a public repository the link is
+   `https://colab.research.google.com/github/<user>/<repo>/blob/main/colab/HRMS_NTS_Colab.ipynb`.
+3. Private repository: create a fine-grained GitHub token with read-only *Contents* access to that repository and add it as a Colab
+   secret named `GH_TOKEN` (key icon in the left bar). Box 0 then clones the code and downloads the Release zip with it.
+4. Put your data in a Google Drive folder (`.raw` and/or `.mzML`; one folder per batch). SCIEX `.wiff/.wiff2` must be converted
    on Windows with ProteoWizard msconvert first (vendor DLLs are Windows-only); profile mzML is fine.
-3. Open `HRMS_NTS_Colab.ipynb` in Colab (File → Upload notebook, or open it from Drive), set the paths in boxes 0 and 1, run the boxes in order.
+5. Set the repository / folder names in boxes 0 and 1 and run the boxes in order.
+Licences: the databases have their own licences (`engine/DATA_SOURCES.md`; some library records are non-commercial) - keep the
+repository / Release **private** unless you have checked that redistribution is allowed.
+
+## Alternative - Google Drive zip
+Put the full package zip (`HRMS_NTS_Ultimate_*.zip`, 1.2 GB) in your Google Drive and choose `SOURCE = Google Drive zip` in box 0.
 4. Optional, for semi-quantification: request a free CompTox CTX API key from the EPA and add it as a Colab secret named `CTX_API_KEY`
    (key icon in the left bar). Without a key, a Dashboard batch-search export or RDKit logP estimates are used.
 
