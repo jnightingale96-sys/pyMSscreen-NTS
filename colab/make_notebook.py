@@ -41,7 +41,7 @@ Runs in **Google Colab** or **locally** (Jupyter / VS Code on this PC) - the sam
 code(r'''
 #@title 0 · Setup { display-mode: "form" }
 SOURCE = "GitHub"  #@param ["GitHub", "Google Drive zip", "Local folder (this PC)"]
-GITHUB_REPO = "jnightingale96/pyMSscreen-NTS"  #@param {type:"string"}
+GITHUB_REPO = "jnightingale96-sys/pyMSscreen-NTS"  #@param {type:"string"}
 GITHUB_BRANCH = "main"  #@param {type:"string"}
 DATA_RELEASE_TAG = "data-v1"  #@param {type:"string"}
 PACKAGE_ZIP = "/content/drive/MyDrive/HRMS_NTS/HRMS_NTS_Ultimate_20261102_v0.5.zip"  #@param {type:"string"}

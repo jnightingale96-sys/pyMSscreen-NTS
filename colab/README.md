@@ -11,7 +11,7 @@ chromatogram viewer (Q1 / Q3) → report.
    (build it with `python colab/make_data_zip.py <engine/data> hrms_nts_data.zip`).
 2. Open the notebook straight from GitHub: in Colab, *File → Open notebook → GitHub*, tick *Include private repos* if the repository
    is private, choose `colab/HRMS_NTS_Colab.ipynb`. For a public repository the link is
-   `https://colab.research.google.com/github/<user>/<repo>/blob/main/colab/HRMS_NTS_Colab.ipynb`.
+   `https://colab.research.google.com/github/jnightingale96-sys/pyMSscreen-NTS/blob/main/colab/HRMS_NTS_Colab.ipynb` (works once you have authorised GitHub in Colab).
 3. Private repository: create a fine-grained GitHub token with read-only *Contents* access to that repository and add it as a Colab
    secret named `GH_TOKEN` (key icon in the left bar). Box 0 then clones the code and downloads the Release zip with it.
 4. Put your data in a Google Drive folder (`.raw` and/or `.mzML`; one folder per batch). SCIEX `.wiff/.wiff2` must be converted
