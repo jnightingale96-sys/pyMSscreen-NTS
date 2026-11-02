@@ -67,6 +67,10 @@ Python to use: `.venv\Scripts\python.exe` in the package root (created by the in
    - Negative-mode compounds are flagged when only ESI+ files exist; isobaric IS (same formula) are split by library MS2 / batch RT or flagged unresolved.
 10. **Targeted prescreen** of a compound list (pyMSscreen-style QA): `python -m hrms_nts prescreen compounds.csv <mzML...>` (`ID,Name,SMILES,mz`).
 11. **Validation** against known spiked/absent compounds: `python -m hrms_nts validate <out> expected.csv --absent absent.csv` (see `engine/VALIDATION.md`).
+12. **Whole project step by step** (sample sheet with replicate groups, QC, blanks, calibration with linear/quadratic choice, IS screen,
+    NTS, QA with replicate rule + peak rating + presence confidence, elucidation-distance semi-quant with CompTox, Q1/Q3 chromatograms,
+    NTS_report.xlsx): `hrms_nts.workflow.Project` (see `engine/README.md`) or the Google Colab notebook `colab/HRMS_NTS_Colab.ipynb`
+    (`colab/README.md`). Presence confidence and peak rating are heuristics - say so and quote the threshold used.
 
 ## Confidence levels (Schymanski et al. 2014 scheme, as implemented)
 - **1** authentic standard on this method: standard RT within ±0.2 min and MS2 library match.

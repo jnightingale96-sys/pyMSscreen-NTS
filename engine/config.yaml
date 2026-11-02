@@ -78,7 +78,13 @@ instrument:
       insilico: {frag_tol_ppm: 15}       # SWATH fragment m/z SD ~6 ppm at low ion counts (validated on X500R, 2026-10)
       pec_screen: {integrate: {apex_floor: 1000}}
       targeted: {min_apex: 600}
+      quality: {weights: {iso: 0.0}}     # M+1/M0 reads ~40 % low on X500R profile data (2026-11 test) - isotope term not used
     orbitrap: {}
+
+# ---- peak rating / presence confidence (hrms_nts/quality.py; workflow QA step) ---------------------------------------------------
+quality:
+  presence_pass_pct: 70          # presence confidence needed to call a peak present
+  weights: {rating: 0.25, sn: 0.15, ppm: 0.15, iso: 0.10, ms2: 0.20, replicates: 0.10, blank: 0.05}
 
 # ---- targeted screen: internal standards, targets, calibrants  (python -m hrms_nts targeted) ------------------------------------
 targeted:

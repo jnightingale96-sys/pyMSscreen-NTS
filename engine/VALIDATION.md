@@ -46,6 +46,16 @@ hrms-nts validate validation/results/<date>_<set> expected.csv --absent absent.c
 6. **Isotope scoring**, **adduct handling** ([M+HCOO]-, [M+Cl]-, [M+CH3COO]- produce many chance candidates for small molecules - see the 120 Da rule) and **Level 1 definition** (`levels.level1_require_inhouse_ms2`).
 7. DIA (SWATH) support (0.4.0) is validated for the targeted screen (below); the NTS `run` on DIA data still needs a spiked ground-truth
    set (pseudo-MS2 recovery and false 2a/2b rate vs DDA on the same samples).
+8. **Presence confidence / peak rating (0.5.0)** are transparent heuristics: on the X500R test batch 93 % of Level <= 3 detections
+   passed 70 %. Calibrate the threshold with spiked and blank injections before using it as a reporting criterion.
+9. **Isotope ratios on SCIEX profile data**: observed M+1/M0 ~40 % below theory at all intensities (2026-11 test); the isotope term
+   is switched off for `sciex_qtof` (`instrument.profiles.sciex_qtof.quality.weights.iso: 0`). Investigate (centroiding of the
+   M+1 cluster vs detector) before re-enabling.
+10. **Elucidation-distance semi-quant**: distances are z-scored over calibrants + targets; ED < 0.5 is the project's acceptance value
+   but depends on the calibrant set - validate fold error against spiked compounds. CompTox API path tested with a mocked
+   response only (no key on the test machine).
+11. **Colab**: notebook generated and cell code parsed; the workflow API and widgets were tested on Windows; Drive mount, widget
+   rendering in Colab and ThermoRawFileParser on Linux (mono) are untested.
 
 ## 4b. Targeted screen on SCIEX X500R SWATH data (2026-10-27)
 Data: 75 deuterated / 13C drug internal standards (`examples/drug_IS_pos_75.csv`), SCIEX X500R, ESI+, profile mzML, SWATH 11 windows,

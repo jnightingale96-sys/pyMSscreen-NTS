@@ -53,6 +53,22 @@ Every output folder contains `provenance.json` (toolkit version, git commit, pac
   rules are unchanged. Co-eluting precursors in the same window with identical elution profiles cannot be separated (true for any DIA software).
 * **Scan gaps** (> 1 min without MS1, e.g. an interrupted export) are reported as warnings and in the targeted `Files` sheet.
 
+## Step-by-step project workflow and Google Colab (0.5.0)
+`colab/HRMS_NTS_Colab.ipynb` (one box per step) or from Python:
+```python
+from hrms_nts.workflow import Project
+P = Project(r"D:\batch", r"D:\batch_results")
+P.convert_raw()                         # Thermo .raw -> mzML (ThermoRawFileParser); SCIEX .wiff: msconvert on Windows
+P.set_sample_sheet("sheet.csv")         # file,type(sample|blank|qc|cal),group,replicate,conc   (P.guess_sample_sheet() to start)
+P.calibrate("cal_list.csv")             # name,smiles|formula,label,role(target|IS),is_name -> linear / quadratic curves
+P.targeted("IS_list.csv")               # IS / targets: Q1/Q3, levels, integration, blanks, IS QC
+P.screen("water")                       # NTS Level 5 -> 1
+P.qa("2/3")                             # replicate rule, QC, blanks, peak rating, presence confidence
+P.semiquant(api_key=...)                # elucidation distance + CompTox logP
+P.report(); P.chromatogram("Carbamazepine", "S1_rep1")
+```
+Each step saves its results in the results folder. Details and test status: `colab/README.md`, VALIDATION.md items 8-11.
+
 ## Targeted screen: internal standards, targets, calibrants (`targeted`)
 ```
 hrms-nts targeted <mzML...> --list examples/drug_IS_pos_75.csv --sample-sheet examples/sample_sheet_example.csv

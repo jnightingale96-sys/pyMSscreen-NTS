@@ -130,3 +130,63 @@ def measure_calibrants(run, calibrants: pd.DataFrame, db_masses=None, ppm=5.0, r
         a, rt, apex, snr = eic_area(run, float(mz), float(r.rt), ppm, rt_tol)
         out.append(dict(name=r.name, mz=mz, rt_found=rt, area=a, apex=apex, snr=snr))
     return pd.DataFrame(out)
+
+
+def logie_from_props(logp, hba, hbd, mw):
+    """Same logIE proxy as logie_estimate, with logP taken from measured/CompTox logKow when available."""
+    return 0.379 + 0.653 * logp - 0.206 * hba - 0.264 * hbd + 0.00098 * mw
+
+
+def semiquantify_ed(targets: pd.DataFrame, calibrants: pd.DataFrame, props: pd.DataFrame, ed_max: float = 0.5,
+                    uncertainty_factor: float = 10.0) -> pd.DataFrame:
+    """Elucidation-distance semi-quantification.
+
+    targets    : rows with name, smiles, rt (min), area (same integrator as the calibrants)
+    calibrants : one row per calibrant: name, smiles, rt, rf (response factor = calibration slope, area per conc unit)
+    props      : comptox.property_table output (name/smiles, logkow, mw, hba, hbd)
+    For every target the nearest calibrant in z-scored (logIE, RT, MW, logP) space is used:
+        conc = area / rf_cal * 10^(logIE_cal - logIE_target)
+    elucidation distance (ED) = Euclidean distance in that space; ED < ed_max (default 0.5) = close analogue."""
+    P = props.drop_duplicates("smiles").set_index("smiles")
+
+    def feats(smiles, rt):
+        if smiles not in P.index:
+            e = logie_estimate(smiles)
+            if not e:
+                return None
+            return dict(logie=e["logie"], rt=rt, mw=e["mw"], logp=e["logp"], logp_source="RDKit Crippen estimate")
+        p = P.loc[smiles]
+        lp = float(p["logkow"]); mw = float(p["mw"])
+        return dict(logie=logie_from_props(lp, float(p["hba"]), float(p["hbd"]), mw), rt=rt, mw=mw, logp=lp,
+                    logp_source=p.get("logkow_source", ""))
+
+    C = []
+    for r in calibrants.itertuples():
+        f = feats(r.smiles, float(r.rt))
+        if f and np.isfinite(r.rf) and r.rf > 0:
+            C.append(dict(cal_name=r.name, rf=float(r.rf), **f))
+    C = pd.DataFrame(C)
+    out = targets.copy()
+    for c in ("sq_conc", "sq_low", "sq_high", "elucidation_distance", "sq_calibrant", "sq_logie", "sq_logp", "sq_logp_source", "sq_ed_ok"):
+        out[c] = "" if c in ("sq_calibrant", "sq_logp_source") else (pd.Series([None] * len(out), index=out.index, dtype=object) if c == "sq_ed_ok" else np.nan)
+    if C.empty:
+        log.warning("semi-quant: no usable calibrants (need smiles, rt and a positive response factor)")
+        return out
+    keys = ("logie", "rt", "mw", "logp")
+    # standardise over calibrants AND targets: with a few similar calibrants their own spread is tiny and every distance explodes
+    tf = [feats(r.get("smiles"), float(r.get("rt", np.nan))) for _, r in out.iterrows() if isinstance(r.get("smiles"), str)]
+    pool = pd.concat([C[list(keys)], pd.DataFrame([f for f in tf if f])[list(keys)] if any(tf) else C[list(keys)].iloc[:0]], ignore_index=True)
+    mu = {k: pool[k].mean() for k in keys}; sd = {k: (pool[k].std(ddof=0) or 1.0) for k in keys}
+    Z = np.column_stack([(C[k].values - mu[k]) / sd[k] for k in keys])
+    for i, r in out.iterrows():
+        f = feats(r.get("smiles"), float(r.get("rt", np.nan))) if isinstance(r.get("smiles"), str) else None
+        if not f or not np.isfinite(r.get("area", np.nan)):
+            continue
+        z = np.array([(f[k] - mu[k]) / sd[k] for k in keys])
+        d = np.sqrt(((Z - z) ** 2).sum(axis=1)); j = int(np.argmin(d)); c = C.iloc[j]
+        conc = r["area"] / c["rf"] * 10 ** (c["logie"] - f["logie"])
+        out.at[i, "sq_conc"] = conc; out.at[i, "sq_low"] = conc / uncertainty_factor; out.at[i, "sq_high"] = conc * uncertainty_factor
+        out.at[i, "elucidation_distance"] = round(float(d[j]), 3); out.at[i, "sq_calibrant"] = c["cal_name"]
+        out.at[i, "sq_logie"] = round(f["logie"], 3); out.at[i, "sq_logp"] = round(f["logp"], 2); out.at[i, "sq_logp_source"] = f["logp_source"]
+        out.at[i, "sq_ed_ok"] = bool(d[j] < ed_max)
+    return out
