@@ -8,6 +8,7 @@ code = lambda s: cells.append({"cell_type": "code", "metadata": {"cellView": "fo
 
 md("""
 # HRMS non-target screening (NTS) + semi-quantification — pyMSscreen-NTS engine 0.5
+Runs in Google Colab or locally in Jupyter / VS Code (box 0 picks the source).
 Step by step, one box per step. Run the boxes in order; each step saves its results to the project folder, so you can stop,
 close Colab and continue later from any step.
 
@@ -27,47 +28,72 @@ close Colab and continue later from any step.
 | 11 | Report (NTS_report.xlsx) and downloads |
 """)
 
-md("""## 0 · Setup (once per Colab session, ~3 min)
-**GitHub** (default): the engine is cloned from your repository and the databases (`hrms_nts_data.zip`) are downloaded from one of
-its Releases. For a **private** repository add a GitHub token (fine-grained, read-only *Contents* on that repo) as a Colab secret
-named `GH_TOKEN` (key icon on the left) and allow this notebook to read it.
-**Google Drive zip**: the complete package zip (`HRMS_NTS_Ultimate_*.zip`) uploaded to your Drive.""")
+md("""## 0 · Setup (once per session, ~3 min in Colab)
+Runs in **Google Colab** or **locally** (Jupyter / VS Code on this PC) - the same boxes either way.
+* **GitHub** (Colab default): the engine is cloned from your repository; the databases + MetFrag jar (`hrms_nts_data.zip`) and,
+  optionally, MetFrag's offline spectra (`metfrag_spectra.zip`) are downloaded from a Release. For a **private** repository add a
+  GitHub token (fine-grained, read-only *Contents*) as a Colab secret named `GH_TOKEN` (key icon on the left).
+* **Google Drive zip**: the complete package zip (`HRMS_NTS_Ultimate_*.zip`) on your Drive.
+* **Local folder (this PC)**: the unzipped package (`...\\HRMS_NTS_Ultimate`) - uses its bundled Java + MetFrag; no session time limit,
+  best for MetFrag runs (~30 min per sample).
+
+**MetFrag** needs Java: in Colab tick `INSTALL_METFRAG` (installs OpenJDK, ~30 s). Free Colab sessions stop after ~12 h or when idle.""")
 code(r'''
 #@title 0 · Setup { display-mode: "form" }
-SOURCE = "GitHub"  #@param ["GitHub", "Google Drive zip"]
+SOURCE = "GitHub"  #@param ["GitHub", "Google Drive zip", "Local folder (this PC)"]
 GITHUB_REPO = "jnightingale96/pyMSscreen-NTS"  #@param {type:"string"}
 GITHUB_BRANCH = "main"  #@param {type:"string"}
 DATA_RELEASE_TAG = "data-v1"  #@param {type:"string"}
 PACKAGE_ZIP = "/content/drive/MyDrive/HRMS_NTS/HRMS_NTS_Ultimate_20261102_v0.5.zip"  #@param {type:"string"}
-from google.colab import drive, output
-drive.mount("/content/drive")
-output.enable_custom_widget_manager()
-import os, sys, zipfile, subprocess, glob, json, urllib.request
-if SOURCE == "GitHub":
+LOCAL_PACKAGE = r"C:\Users\jnigh\Desktop\HRMS_NTS_Ultimate_build\HRMS_NTS_Ultimate"  #@param {type:"string"}
+INSTALL_METFRAG = True  #@param {type:"boolean"}
+import os, sys, zipfile, subprocess, glob, json, shutil, urllib.request
+try:
+    import google.colab
+    IN_COLAB = True
+except ImportError:
+    IN_COLAB = False
+if IN_COLAB:
+    from google.colab import drive, output
+    drive.mount("/content/drive")
+    output.enable_custom_widget_manager()
+
+
+def fetch_release_asset(repo, tag, name, dest, token=""):
+    """Download one asset of a GitHub Release (works for private repositories with a token). Returns False if absent."""
+    hdr = {"Authorization": f"Bearer {token}"} if token else {}
+    rel = json.load(urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/tags/{tag}", headers=hdr)))
+    asset = next((a for a in rel["assets"] if a["name"] == name), None)
+    if asset is None:
+        return False
+    print(f"downloading {name} ({asset['size'] / 1e9:.2f} GB) ...")
+    req = urllib.request.Request(asset["url"], headers={**hdr, "Accept": "application/octet-stream"})
+    with urllib.request.urlopen(req) as r, open(dest, "wb") as f:
+        shutil.copyfileobj(r, f, 1 << 24)
+    return True
+
+
+OVERRIDES = {}
+if SOURCE.startswith("Local"):
+    ROOT = LOCAL_PACKAGE                       # its engine/config.local.yaml points to the bundled data, Java and MetFrag
+elif SOURCE == "GitHub":
     try:
         from google.colab import userdata
         TOKEN = userdata.get("GH_TOKEN")
     except Exception:
-        TOKEN = ""                                    # public repository
-    ROOT = "/content/pyMSscreen-NTS"
+        TOKEN = os.environ.get("GH_TOKEN", "")    # empty for a public repository
+    ROOT = "/content/pyMSscreen-NTS" if IN_COLAB else os.path.abspath("pyMSscreen-NTS")
     if not os.path.exists(ROOT):
         auth = f"{TOKEN}@" if TOKEN else ""
         subprocess.run(["git", "clone", "-q", "--depth", "1", "-b", GITHUB_BRANCH, f"https://{auth}github.com/{GITHUB_REPO}.git", ROOT], check=True)
-    data_dir = os.path.join(ROOT, "engine", "data")
+    data_dir = os.path.join(ROOT, "engine", "data"); os.makedirs(data_dir, exist_ok=True)
+    tmp = os.path.join(ROOT, "_download.zip")
     if not os.path.exists(os.path.join(data_dir, "spectral_library.sqlite")):
-        hdr = {"Authorization": f"Bearer {TOKEN}"} if TOKEN else {}
-        api = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{DATA_RELEASE_TAG}"
-        rel = json.load(urllib.request.urlopen(urllib.request.Request(api, headers=hdr)))
-        asset = next(a for a in rel["assets"] if a["name"].endswith(".zip"))
-        print(f"downloading {asset['name']} ({asset['size'] / 1e9:.2f} GB) ...")
-        req = urllib.request.Request(asset["url"], headers={**hdr, "Accept": "application/octet-stream"})
-        with urllib.request.urlopen(req) as r, open("/content/hrms_nts_data.zip", "wb") as f:
-            while True:
-                b = r.read(1 << 24)
-                if not b: break
-                f.write(b)
-        os.makedirs(data_dir, exist_ok=True)
-        zipfile.ZipFile("/content/hrms_nts_data.zip").extractall(data_dir); os.remove("/content/hrms_nts_data.zip")
+        fetch_release_asset(GITHUB_REPO, DATA_RELEASE_TAG, "hrms_nts_data.zip", tmp, TOKEN)
+        zipfile.ZipFile(tmp).extractall(data_dir); os.remove(tmp)
+    if INSTALL_METFRAG and not os.path.isdir(os.path.join(data_dir, "mb_converted")):
+        if fetch_release_asset(GITHUB_REPO, DATA_RELEASE_TAG, "metfrag_spectra.zip", tmp, TOKEN):
+            zipfile.ZipFile(tmp).extractall(data_dir); os.remove(tmp)
     with open(os.path.join(ROOT, "engine", "config.local.yaml"), "w") as f:      # paths of the downloaded databases
         f.write('paths:\n  susdat: "data/susdat.csv"\n  pubchemlite: "data/PubChemLite_exposomics.csv"\n  library_msp: []\n'
                 '  library_db: "data/spectral_library.sqlite"\n  metfrag_jar: "data/MetFragCommandLine-2.6.11.jar"\n'
@@ -78,16 +104,23 @@ else:
     if not os.path.exists(ROOT):
         print("unzipping the package (1.2 GB) ...")
         zipfile.ZipFile(PACKAGE_ZIP).extractall("/content")
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "rdkit", "pyteomics", "psims", "plotly", "ipywidgets", "requests"], check=True)
+if IN_COLAB:
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "rdkit", "pyteomics", "psims", "plotly", "ipywidgets", "requests"], check=True)
+    if INSTALL_METFRAG and shutil.which("java") is None:
+        print("installing Java for MetFrag ...")
+        subprocess.run("apt-get -qq update > /dev/null && apt-get -qq install -y openjdk-17-jre-headless > /dev/null", shell=True, check=True)
+    # Linux: system Java instead of the bundled Windows runtime; RAW converter installed in box 2; caches on the local disk
+    OVERRIDES = {"paths": {"java": "java", "thermorawfileparser": None, "cache_dir": "/content/nts_cache"}}
 ENGINE = os.path.join(ROOT, "engine")
 if ENGINE not in sys.path:
     sys.path.insert(0, ENGINE)
 from hrms_nts import __version__
 from hrms_nts.workflow import Project, install_thermorawfileparser
 from hrms_nts import colab_ui as ui
-# Linux paths: no bundled Windows Java / RAW converter; MetFrag stays off unless you install Java (apt-get install default-jre)
-OVERRIDES = {"paths": {"java": "java", "thermorawfileparser": None, "cache_dir": "/content/nts_cache"}}
-print("hrms_nts", __version__, "ready")
+from hrms_nts.insilico import metfrag_available
+from hrms_nts.common import load_config
+mf_ok = metfrag_available(load_config(None, OVERRIDES))[0]
+print(f"hrms_nts {__version__} ready ({'Colab' if IN_COLAB else 'local'}); MetFrag {'available' if mf_ok else 'NOT available - use IN_SILICO = builtin'}")
 ''')
 
 md("## 1 · Data and results folders\n`DATA_DIR` holds the .raw and/or .mzML files (sub-folders are searched). Results go to `OUT_DIR` — keep it on Drive so nothing is lost when Colab disconnects.")
@@ -105,9 +138,11 @@ md("## 2 · Convert .raw → mzML (skip if you already have mzML)\nThermo .raw f
 code(r'''
 #@title 2 · Convert Thermo .raw { display-mode: "form" }
 if P.inputs()["raw"]:
-    subprocess.run("apt-get -qq install -y mono-runtime > /dev/null", shell=True)        # ThermoRawFileParser .NET Framework builds
-    trfp = install_thermorawfileparser("/content/trfp")
-    new = P.convert_raw(trfp)
+    if IN_COLAB:
+        subprocess.run("apt-get -qq install -y mono-runtime > /dev/null", shell=True)    # ThermoRawFileParser .NET Framework builds
+        new = P.convert_raw(install_thermorawfileparser("/content/trfp"))
+    else:
+        new = P.convert_raw()                                                                # bundled ThermoRawFileParser.exe
     print(f"converted {len(new)} file(s)")
 else:
     print("no .raw files - nothing to convert")
@@ -173,7 +208,8 @@ md("## 7 · Non-target screening (Level 5 → 1)\nEvery sample, QC and blank: fe
 code(r'''
 #@title 7 · Screening { display-mode: "form" }
 MATRIX = "water"  #@param ["water", "grain", "soil", "extract"]
-IN_SILICO = "builtin"  #@param ["builtin", "none"]
+IN_SILICO = "builtin"  #@param ["builtin", "both", "metfrag", "none"]
+# both = built-in + MetFrag (~30 min per injection). MetFrag-only Level 2b counts as tentative unless the built-in scorer agrees (decoy-corrected).
 sc = P.screen(MATRIX, IN_SILICO)
 display(sc["level_summary"])
 ''')
@@ -217,9 +253,9 @@ code(r'''
 #@title 11 · Report { display-mode: "form" }
 path = P.report()
 print("report:", path)
-from google.colab import files
 DOWNLOAD = True  #@param {type:"boolean"}
-if DOWNLOAD:
+if DOWNLOAD and IN_COLAB:
+    from google.colab import files
     files.download(path)
 ''')
 

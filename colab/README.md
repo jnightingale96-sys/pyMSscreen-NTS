@@ -20,6 +20,17 @@ chromatogram viewer (Q1 / Q3) → report.
 Licences: the databases have their own licences (`engine/DATA_SOURCES.md`; some library records are non-commercial) - keep the
 repository / Release **private** unless you have checked that redistribution is allowed.
 
+## MetFrag
+Box 0 option `INSTALL_METFRAG` (default on): installs OpenJDK in Colab and downloads `metfrag_spectra.zip` (MetFrag's offline
+MassBank spectra) from the same Release; then choose `IN_SILICO = both` in box 7. MetFrag makes one Java call per feature
+(~30 min per injection): fine for a few injections in Colab, but free Colab sessions stop after ~12 h or when idle, so run large
+MetFrag batches **locally** (below). MetFrag-only Level 2b stays tentative unless the decoy-corrected built-in scorer agrees.
+
+## Locally (Jupyter / VS Code on your PC) - same notebook
+Open `HRMS_NTS_Colab.ipynb` in Jupyter or VS Code with the package's Python (`HRMS_NTS_Ultimate\.venv`), set box 0
+`SOURCE = Local folder (this PC)` and `LOCAL_PACKAGE` to the unzipped package. The bundled Java runtime, MetFrag and
+ThermoRawFileParser are used; there is no session limit. Boxes 1-11 are identical (use local paths in box 1).
+
 ## Alternative - Google Drive zip
 Put the full package zip (`HRMS_NTS_Ultimate_*.zip`, 1.2 GB) in your Google Drive and choose `SOURCE = Google Drive zip` in box 0.
 4. Optional, for semi-quantification: request a free CompTox CTX API key from the EPA and add it as a Colab secret named `CTX_API_KEY`

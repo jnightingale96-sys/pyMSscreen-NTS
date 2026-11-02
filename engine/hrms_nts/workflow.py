@@ -43,8 +43,13 @@ class Project:
 
     # ------------------------------------------------------------------------------------------------ files
     def inputs(self):
-        f = lambda *ext: sorted(x for e in ext for x in glob.glob(os.path.join(self.data_dir, "**", "*" + e), recursive=True)
-                                if "NTS_project" not in x)
+        def f(*ext):                       # case variants of an extension match the same file on Windows -> de-duplicate
+            seen = {}
+            for e in ext:
+                for x in glob.glob(os.path.join(self.data_dir, "**", "*" + e), recursive=True):
+                    if "NTS_project" not in x:
+                        seen.setdefault(os.path.normcase(os.path.abspath(x)), x)
+            return sorted(seen.values())
         return dict(raw=f(".raw", ".RAW"), sciex=f(".wiff", ".wiff2", ".WIFF", ".WIFF2"), mzml=f(".mzML", ".mzml"))
 
     def mzml_files(self):
