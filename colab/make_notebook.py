@@ -169,8 +169,12 @@ if USE_ONEDRIVE:
     if not m:
         raise SystemExit("RCLONE_ONEDRIVE_TOKEN is empty or is not the {access_token: ...} line printed by rclone authorize onedrive - "
                          "copy that whole line (from { to }) into the secret.")
-    tok = m.group(0)
-    t = json.loads(tok)
+    tok = "".join(m.group(0).split())     # copying from a Windows console inserts line breaks where it wrapped; the token has none
+    try:
+        t = json.loads(tok)
+    except json.JSONDecodeError:
+        raise SystemExit("RCLONE_ONEDRIVE_TOKEN is incomplete or damaged (part of the line missing?) - run 'rclone authorize \"onedrive\"' "
+                         "again and copy the whole line from { to } into the secret.")
     me = json.load(urllib.request.urlopen(urllib.request.Request("https://graph.microsoft.com/v1.0/me/drive",
                                                                  headers={"Authorization": f"Bearer {t['access_token']}"})))
     subprocess.run(["rclone", "config", "create", "onedrive", "onedrive", "token", tok, "drive_id", me["id"],
