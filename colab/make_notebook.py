@@ -15,7 +15,7 @@ close Colab and continue later from any step.
 | Step | What it does |
 |---|---|
 | 0 | Install the engine + databases (NORMAN SusDat, PubChemLite, 970k-spectrum MS/MS library, NORMAN RTI) |
-| 1 | Point to your data folder (.raw / .mzML) and a results folder on Google Drive |
+| 1 | Point to your data folder (.raw / .mzML) and a results folder on Google Drive (1b: or copy the data from a personal OneDrive) |
 | 2 | Convert Thermo .raw to centroided mzML (SCIEX .wiff/.wiff2: convert with msconvert on Windows first) |
 | 3 | Sample sheet: sample / blank / QC / calibration, replicate groups, calibration levels |
 | 4 | QA/QC settings: replicate rule (e.g. 2/3), blank ratio, QC RSD, presence-confidence threshold, Q1/Q3 tolerances |
@@ -132,6 +132,42 @@ P = Project(DATA_DIR, OUT_DIR, overrides=OVERRIDES)
 ins = P.inputs()
 print(f"{len(ins['raw'])} Thermo .raw, {len(ins['sciex'])} SCIEX .wiff/.wiff2, {len(ins['mzml'])} mzML")
 for f in ins["mzml"][:30]: print("  ", os.path.basename(f))
+''')
+
+md("""## 1b · Data from a personal OneDrive (optional - skip if your data are on Google Drive)
+Copies a OneDrive folder into this Colab machine with **rclone** and makes it the data folder (results still go to `OUT_DIR`).
+One-off on your PC: download rclone (rclone.org/downloads, Windows zip), open a command prompt in its folder and run
+`rclone authorize "onedrive"` - a browser opens, sign in with your **personal** Microsoft account, then copy everything between
+`--->` and `<---` (one line starting `{"access_token"`). In Colab add it as a secret named `RCLONE_ONEDRIVE_TOKEN` (key icon).
+University / work OneDrive accounts usually need IT approval for rclone - use a personal account or Google Drive.""")
+code(r'''
+#@title 1b · Copy data from OneDrive { display-mode: "form" }
+USE_ONEDRIVE = False  #@param {type:"boolean"}
+ONEDRIVE_FOLDER = "NTS_CoLab_Test"  #@param {type:"string"}
+if USE_ONEDRIVE:
+    import json, urllib.request, shutil, subprocess
+    if shutil.which("rclone") is None:
+        subprocess.run("curl -s https://rclone.org/install.sh | sudo bash > /dev/null", shell=True, check=True)
+    try:
+        from google.colab import userdata
+        tok = userdata.get("RCLONE_ONEDRIVE_TOKEN")
+    except Exception:
+        tok = os.environ.get("RCLONE_ONEDRIVE_TOKEN", "")
+    t = json.loads(tok)
+    me = json.load(urllib.request.urlopen(urllib.request.Request("https://graph.microsoft.com/v1.0/me/drive",
+                                                                 headers={"Authorization": f"Bearer {t['access_token']}"})))
+    subprocess.run(["rclone", "config", "create", "onedrive", "onedrive", "token", tok, "drive_id", me["id"],
+                    "drive_type", me["driveType"], "--non-interactive"], check=True, stdout=subprocess.DEVNULL)
+    LOCAL_DATA = os.path.join("/content/onedrive_data", os.path.basename(ONEDRIVE_FOLDER.rstrip("/")))
+    print(f"copying onedrive:{ONEDRIVE_FOLDER} -> {LOCAL_DATA} ...")
+    subprocess.run(["rclone", "copy", f"onedrive:{ONEDRIVE_FOLDER}", LOCAL_DATA, "--include", "*.{mzML,mzml,raw,RAW}",
+                    "--transfers", "4", "--stats-one-line", "--stats", "30s", "-v"], check=True)
+    DATA_DIR = LOCAL_DATA
+    P = Project(DATA_DIR, OUT_DIR, overrides=OVERRIDES)
+    ins = P.inputs()
+    print(f"{len(ins['raw'])} Thermo .raw, {len(ins['mzml'])} mzML now in {DATA_DIR}")
+else:
+    print("OneDrive not used - data come from DATA_DIR in box 1")
 ''')
 
 md("## 2 · Convert .raw → mzML (skip if you already have mzML)\nThermo .raw files are converted with ThermoRawFileParser (centroided, indexed mzML). SCIEX .wiff/.wiff2 cannot be read on Linux: convert them on Windows with ProteoWizard msconvert (*Peak picking: Vendor, MS levels 1-*) and put the mzML in `DATA_DIR`. Profile mzML is fine — the engine centroids it.")
@@ -258,6 +294,19 @@ if DOWNLOAD and IN_COLAB:
     from google.colab import files
     files.download(path)
 ''')
+
+md("## 11b · Copy the results to OneDrive (optional)\nNeeds box 1b to have been run in this session (rclone set up).")
+code(r'''
+#@title 11b · Results to OneDrive { display-mode: "form" }
+ONEDRIVE_RESULTS_FOLDER = "NTS_CoLab_Test_results"  #@param {type:"string"}
+if shutil.which("rclone") and "onedrive" in subprocess.run(["rclone", "listremotes"], capture_output=True, text=True).stdout:
+    subprocess.run(["rclone", "copy", OUT_DIR, f"onedrive:{ONEDRIVE_RESULTS_FOLDER}", "--exclude", "_*.pkl",
+                    "--stats-one-line", "--stats", "30s", "-v"], check=True)
+    print(f"results copied to onedrive:{ONEDRIVE_RESULTS_FOLDER}")
+else:
+    print("rclone / OneDrive not set up - run box 1b first")
+''')
+
 
 nb = {"nbformat": 4, "nbformat_minor": 0, "metadata": {"colab": {"provenance": [], "toc_visible": True},
                                                         "kernelspec": {"name": "python3", "display_name": "Python 3"},
