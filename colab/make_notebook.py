@@ -173,8 +173,12 @@ if USE_ONEDRIVE:
     try:
         t = json.loads(tok)
     except json.JSONDecodeError:
-        raise SystemExit("RCLONE_ONEDRIVE_TOKEN is incomplete or damaged (part of the line missing?) - run 'rclone authorize \"onedrive\"' "
-                         "again and copy the whole line from { to } into the secret.")
+        t = None
+    if t is None:
+        raise SystemExit("RCLONE_ONEDRIVE_TOKEN is incomplete or damaged. Copying from the black console window often breaks it: on your PC run\n"
+                         "    rclone authorize \"onedrive\" > %USERPROFILE%\\Desktop\\onedrive_token.txt\n"
+                         "open that file in Notepad, Ctrl+A, Ctrl+C, paste it as the secret value, then delete the file.")
+    ONEDRIVE_FOLDER = ONEDRIVE_FOLDER.split("=", 1)[-1].strip().strip("/")      # tolerate 'ONEDRIVE_FOLDER = ...' typed into the box
     me = json.load(urllib.request.urlopen(urllib.request.Request("https://graph.microsoft.com/v1.0/me/drive",
                                                                  headers={"Authorization": f"Bearer {t['access_token']}"})))
     subprocess.run(["rclone", "config", "create", "onedrive", "onedrive", "token", tok, "drive_id", me["id"],
