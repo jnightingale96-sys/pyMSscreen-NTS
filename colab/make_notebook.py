@@ -128,6 +128,8 @@ code(r'''
 #@title 1 · Folders { display-mode: "form" }
 DATA_DIR = "/content/drive/MyDrive/HRMS_NTS/my_batch"  #@param {type:"string"}
 OUT_DIR = "/content/drive/MyDrive/HRMS_NTS/my_batch_results"  #@param {type:"string"}
+if "Project" not in globals():
+    raise SystemExit("Box 0 has not finished in this session - run box 0 first (it must end with 'hrms_nts ... ready').")
 P = Project(DATA_DIR, OUT_DIR, overrides=OVERRIDES)
 ins = P.inputs()
 print(f"{len(ins['raw'])} Thermo .raw, {len(ins['sciex'])} SCIEX .wiff/.wiff2, {len(ins['mzml'])} mzML")
@@ -143,16 +145,23 @@ University / work OneDrive accounts usually need IT approval for rclone - use a 
 code(r'''
 #@title 1b · Copy data from OneDrive { display-mode: "form" }
 USE_ONEDRIVE = False  #@param {type:"boolean"}
-ONEDRIVE_FOLDER = "NTS_CoLab_Test"  #@param {type:"string"}
+ONEDRIVE_FOLDER = "Documents/NTS_CoLab_Test"  #@param {type:"string"}
 if USE_ONEDRIVE:
     import json, urllib.request, shutil, subprocess
     if shutil.which("rclone") is None:
         subprocess.run("curl -s https://rclone.org/install.sh | sudo bash > /dev/null", shell=True, check=True)
+    import re
     try:
         from google.colab import userdata
         tok = userdata.get("RCLONE_ONEDRIVE_TOKEN")
-    except Exception:
-        tok = os.environ.get("RCLONE_ONEDRIVE_TOKEN", "")
+    except Exception as e:
+        raise SystemExit(f"Cannot read the Colab secret RCLONE_ONEDRIVE_TOKEN ({type(e).__name__}): add it under the key icon with exactly "
+                         "that name and switch 'Notebook access' on, then run this box again.")
+    m = re.search(r"\{.*\}", tok or "", re.S)               # tolerate the ---> / <--- arrows or extra spaces around the token
+    if not m:
+        raise SystemExit("RCLONE_ONEDRIVE_TOKEN is empty or is not the {access_token: ...} line printed by rclone authorize onedrive - "
+                         "copy that whole line (from { to }) into the secret.")
+    tok = m.group(0)
     t = json.loads(tok)
     me = json.load(urllib.request.urlopen(urllib.request.Request("https://graph.microsoft.com/v1.0/me/drive",
                                                                  headers={"Authorization": f"Bearer {t['access_token']}"})))
@@ -298,7 +307,7 @@ if DOWNLOAD and IN_COLAB:
 md("## 11b · Copy the results to OneDrive (optional)\nNeeds box 1b to have been run in this session (rclone set up).")
 code(r'''
 #@title 11b · Results to OneDrive { display-mode: "form" }
-ONEDRIVE_RESULTS_FOLDER = "NTS_CoLab_Test_results"  #@param {type:"string"}
+ONEDRIVE_RESULTS_FOLDER = "Documents/NTS_CoLab_Test_results"  #@param {type:"string"}
 if shutil.which("rclone") and "onedrive" in subprocess.run(["rclone", "listremotes"], capture_output=True, text=True).stdout:
     subprocess.run(["rclone", "copy", OUT_DIR, f"onedrive:{ONEDRIVE_RESULTS_FOLDER}", "--exclude", "_*.pkl",
                     "--stats-one-line", "--stats", "30s", "-v"], check=True)
