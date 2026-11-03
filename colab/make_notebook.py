@@ -82,10 +82,18 @@ elif SOURCE == "GitHub":
         TOKEN = userdata.get("GH_TOKEN")
     except Exception:
         TOKEN = os.environ.get("GH_TOKEN", "")    # empty for a public repository
+    TOKEN = "".join((TOKEN or "").split())           # pasted secrets often carry a trailing line break / spaces
     ROOT = "/content/pyMSscreen-NTS" if IN_COLAB else os.path.abspath("pyMSscreen-NTS")
-    if not os.path.exists(ROOT):
-        auth = f"{TOKEN}@" if TOKEN else ""
-        subprocess.run(["git", "clone", "-q", "--depth", "1", "-b", GITHUB_BRANCH, f"https://{auth}github.com/{GITHUB_REPO}.git", ROOT], check=True)
+    if not os.path.exists(os.path.join(ROOT, "engine")):
+        shutil.rmtree(ROOT, ignore_errors=True)
+        auth = f"x-access-token:{TOKEN}@" if TOKEN else ""
+        r = subprocess.run(["git", "clone", "-q", "--depth", "1", "-b", GITHUB_BRANCH, f"https://{auth}github.com/{GITHUB_REPO}.git", ROOT],
+                           capture_output=True, text=True)
+        if r.returncode != 0:                         # never echo the token
+            raise SystemExit("Cloning the GitHub repository failed: " + r.stderr.replace(TOKEN, "***").strip() +
+                             "\nCheck GITHUB_REPO, that the GH_TOKEN secret has Notebook access, and that the token can read this repository "
+                             "(Contents: Read-only) and has not expired.")
+        subprocess.run(["git", "-C", ROOT, "remote", "set-url", "origin", f"https://github.com/{GITHUB_REPO}.git"])   # token not kept on disk
     data_dir = os.path.join(ROOT, "engine", "data"); os.makedirs(data_dir, exist_ok=True)
     tmp = os.path.join(ROOT, "_download.zip")
     if not os.path.exists(os.path.join(data_dir, "spectral_library.sqlite")):
