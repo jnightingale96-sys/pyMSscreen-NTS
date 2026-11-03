@@ -153,7 +153,7 @@ University / work OneDrive accounts usually need IT approval for rclone - use a 
 code(r'''
 #@title 1b · Copy data from OneDrive { display-mode: "form" }
 USE_ONEDRIVE = False  #@param {type:"boolean"}
-ONEDRIVE_FOLDER = "Documents/NTS_CoLab_Test"  #@param {type:"string"}
+ONEDRIVE_FOLDER = "NTS_CoLab_Test"  #@param {type:"string"}
 if USE_ONEDRIVE:
     import json, urllib.request, shutil, subprocess
     if shutil.which("rclone") is None:
@@ -183,10 +183,22 @@ if USE_ONEDRIVE:
                                                                  headers={"Authorization": f"Bearer {t['access_token']}"})))
     subprocess.run(["rclone", "config", "create", "onedrive", "onedrive", "token", tok, "drive_id", me["id"],
                     "drive_type", me["driveType"], "--non-interactive"], check=True, stdout=subprocess.DEVNULL)
+    # OneDrive web links show the drive itself as '/Documents/', so 'Documents/X' may really be 'X' at the top level
+    exists = lambda f: subprocess.run(["rclone", "lsf", "--max-depth", "1", f"onedrive:{f}"], capture_output=True).returncode == 0
+    candidates = [ONEDRIVE_FOLDER] + ([ONEDRIVE_FOLDER.split("/", 1)[1]] if ONEDRIVE_FOLDER.lower().startswith("documents/") else [])
+    found = next((f for f in candidates if exists(f)), None)
+    if found is None:
+        top = subprocess.run(["rclone", "lsd", "onedrive:"], capture_output=True, text=True).stdout
+        names = [ln.split(None, 4)[-1] for ln in top.splitlines() if ln.strip()]
+        raise SystemExit(f"OneDrive folder '{ONEDRIVE_FOLDER}' not found. Folders at the top of your OneDrive:\n  " + "\n  ".join(names) +
+                         "\nPut the folder path (as in this list, sub-folders with /) into ONEDRIVE_FOLDER and run this box again.")
+    ONEDRIVE_FOLDER = found
     LOCAL_DATA = os.path.join("/content/onedrive_data", os.path.basename(ONEDRIVE_FOLDER.rstrip("/")))
     print(f"copying onedrive:{ONEDRIVE_FOLDER} -> {LOCAL_DATA} ...")
-    subprocess.run(["rclone", "copy", f"onedrive:{ONEDRIVE_FOLDER}", LOCAL_DATA, "--include", "*.{mzML,mzml,raw,RAW}",
-                    "--transfers", "4", "--stats-one-line", "--stats", "30s", "-v"], check=True)
+    r = subprocess.run(["rclone", "copy", f"onedrive:{ONEDRIVE_FOLDER}", LOCAL_DATA, "--include", "*.{mzML,mzml,raw,RAW}",
+                        "--transfers", "4", "--stats-one-line", "--stats", "30s", "-v"])
+    if r.returncode != 0:
+        raise SystemExit(f"rclone copy failed (exit {r.returncode}) - see the rclone messages above")
     DATA_DIR = LOCAL_DATA
     P = Project(DATA_DIR, OUT_DIR, overrides=OVERRIDES)
     ins = P.inputs()
@@ -323,7 +335,7 @@ if DOWNLOAD and IN_COLAB:
 md("## 11b · Copy the results to OneDrive (optional)\nNeeds box 1b to have been run in this session (rclone set up).")
 code(r'''
 #@title 11b · Results to OneDrive { display-mode: "form" }
-ONEDRIVE_RESULTS_FOLDER = "Documents/NTS_CoLab_Test_results"  #@param {type:"string"}
+ONEDRIVE_RESULTS_FOLDER = "NTS_CoLab_Test_results"  #@param {type:"string"}
 if shutil.which("rclone") and "onedrive" in subprocess.run(["rclone", "listremotes"], capture_output=True, text=True).stdout:
     subprocess.run(["rclone", "copy", OUT_DIR, f"onedrive:{ONEDRIVE_RESULTS_FOLDER}", "--exclude", "_*.pkl",
                     "--stats-one-line", "--stats", "30s", "-v"], check=True)
