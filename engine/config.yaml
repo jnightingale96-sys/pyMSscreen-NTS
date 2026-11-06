@@ -155,6 +155,15 @@ semiquant:
   area_column: area              # area | max_int
   uncertainty_factor: 10         # reported low/high bounds = /x and *x
   loq_ug_mL_extract: null
+  is_surrogate:                  # engine 0.6.0 - Project.semiquant(method="is"): kNN of labelled-IS molar response factors
+    method: knn                  # knn | median
+    k: 5
+    t0_min: 1.0                  # column dead time; IS with apex < t0 + void_margin are not used, targets there are flagged
+    void_margin_min: 0.5
+    rt_window_min: 1.0           # matrix correction: median IS recovery of IS within +-window of the target RT
+    mobile_phase_ph: 2.7         # for cationic fraction / logD (0.1 % formic acid)
+    uncertainty: [3, 5, 10]      # x/÷ factor by nearest-IS distance <= ad_cuts[0] / <= ad_cuts[1] / beyond (and void, unknown class)
+    ad_cuts: [1.0, 2.0]
   single_reference:              # replace 'area' by the area THIS toolkit measures for the reference (run `calibrate`)
     name: Carbamazepine
     conc_ug_mL: 0.5

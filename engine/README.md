@@ -64,7 +64,8 @@ P.calibrate("cal_list.csv")             # name,smiles|formula,label,role(target|
 P.targeted("IS_list.csv")               # IS / targets: Q1/Q3, levels, integration, blanks, IS QC
 P.screen("water")                       # NTS Level 5 -> 1
 P.qa("2/3")                             # replicate rule, QC, blanks, peak rating, presence confidence
-P.semiquant(api_key=...)                # elucidation distance + CompTox logP
+P.semiquant(method="is", is_mix="ISMIX", is_conc_ug_ml=0.1)   # 0.6.0: kNN of labelled-IS response factors + matrix correction
+P.semiquant(method="ed", api_key=...)   # 0.5.0: elucidation distance to calibration standards + CompTox logP
 P.report(); P.chromatogram("Carbamazepine", "S1_rep1")
 ```
 Each step saves its results in the results folder. Details and test status: `colab/README.md`, VALIDATION.md items 8-11.

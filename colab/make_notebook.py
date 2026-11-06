@@ -298,21 +298,41 @@ display(I[[c for c in cols if c in I.columns]].sort_values(["level", "presence_c
 if len(q["presence"]): display(q["presence"].head(30))
 ''')
 
-md("## 9 · Semi-quantification (elucidation distance)\nEach identified compound is matched to the nearest calibrant in z-scored (logIE, RT, MW, logP) space; conc = area / RF × 10^(logIE_cal − logIE). logP comes from the **CompTox Dashboard** (experimental median, else predicted) — get a free CTX API key from the EPA CTX API team and store it as a Colab secret named `CTX_API_KEY` (key icon on the left), or upload a Dashboard batch-search export. ED < 0.5 = close analogue. Concentrations carry a ×/÷ factor (default 10).")
+md("""## 9 · Semi-quantification
+**IS surrogate (recommended, engine 0.6.0)** - needs step 6 (IS list) and an injection of the IS mix (sample-sheet type `qc`, or name it below).
+Each compound gets the molar response of its 5 most similar labelled IS (kNN in logKow / TPSA / molar volume / MW / H-bond / charge
+space; Good, resolved, non-void IS only), divided by the IS recovery in that sample near its RT. Uncertainty ×/÷3 close to the IS,
+×/÷5 / ×/÷10 further away, ×/÷10 for void-eluting compounds and for ionisation classes no IS represents. In the SCIEX drug-IS
+evaluation this predicted held-out IS within 1.37× (median), 97 % within 3×; a single reference compound was the worst option.
+Also reports the RT predicted from properties (column-specific regression on the IS) as weak identification evidence.
+**Elucidation distance (0.5.0)** - nearest calibration standard in (logIE, RT, MW, logP) space; needs step 5 calibrants and CompTox
+(`CTX_API_KEY` Colab secret or a Dashboard batch-search export).""")
 code(r'''
 #@title 9 · Semi-quantification { display-mode: "form" }
 MIN_LEVEL_SEMIQUANT = "2b"  #@param ["1", "2a", "2b", "3"]
 COMPTOX_BATCH_EXPORT = ""  #@param {type:"string"}
 MATRIX_FACTOR = 1.0  #@param {type:"number"}
 UNIT = "ng/mL extract"  #@param {type:"string"}
+METHOD = "auto"  #@param ["auto", "is", "ed"]
+IS_MIX_FILES = ""  #@param {type:"string"}
+IS_CONC_UG_ML = 0.1  #@param {type:"number"}
+CURATED_PHYSCHEM_CSV = ""  #@param {type:"string"}
 try:
     from google.colab import userdata
     KEY = userdata.get("CTX_API_KEY")
 except Exception:
     KEY = os.environ.get("CTX_API_KEY", "")
-sq = P.semiquant(KEY, COMPTOX_BATCH_EXPORT or None, 0.5, MIN_LEVEL_SEMIQUANT, MATRIX_FACTOR, UNIT)
+sq = P.semiquant(KEY, COMPTOX_BATCH_EXPORT or None, 0.5, MIN_LEVEL_SEMIQUANT, MATRIX_FACTOR, UNIT, method=METHOD,
+                 is_mix=[f.strip() for f in IS_MIX_FILES.split(",") if f.strip()] or None,
+                 is_conc_ug_ml=IS_CONC_UG_ML or None, physchem=CURATED_PHYSCHEM_CSV or None)
 t = sq["table"]
-display(t[[c for c in ["sample", "name", "level", "sq_conc", "sq_low", "sq_high", "elucidation_distance", "sq_ed_ok", "sq_calibrant", "sq_logp_source"] if c in t.columns]].head(50))
+print("method:", sq.get("method"))
+if sq.get("method") == "is":
+    rf = sq["is_rf"]; print(f"{int(rf.use.sum())} of {len(rf)} IS used for response factors")
+    display(rf[~rf.use][["name", "rt", "rating", "reason"]].head(30))
+cols = ["sample", "name", "level", "sq_conc", "sq_low", "sq_high", "sq_method", "sq_nearest_IS", "sq_nn_distance", "sq_recovery",
+        "sq_flags", "rt", "rt_pred_from_properties", "rt_property_plausible", "elucidation_distance", "sq_ed_ok", "sq_calibrant"]
+display(t[[c for c in cols if c in t.columns]].head(50))
 ''')
 
 md("## 10 · Chromatogram viewer\nPick a compound and an injection: **Q1** = precursor ion trace (integrated region shaded), **Q3** = product-ion traces (observed in the MS2 of this peak; dotted = in-silico predicted when no MS2 is available). Shows area, S/N, peak rating, Q1 error, presence confidence and ion ratios.")

@@ -173,7 +173,8 @@ class Project:
         sheet = os.path.join(self.out_dir, "sample_sheet.csv") if self.sheet is not None else None
         r = run_targeted(files, lst, os.path.join(self.out_dir, "targeted"), self.cfg, sheet=sheet)
         per_is, per_inj = QA.is_qc(r["assigned"], self.sheet)
-        res = dict(assigned=r["assigned"], blank=r["blank"], info=r["info"], xlsx=r["xlsx"], is_qc=per_is, injection_qc=per_inj)
+        res = dict(assigned=r["assigned"], blank=r["blank"], info=r["info"], xlsx=r["xlsx"], is_qc=per_is, injection_qc=per_inj,
+                   list_path=lst)
         self._save("targeted", res)
         return res
 
@@ -254,7 +255,20 @@ class Project:
         return res
 
     # ------------------------------------------------------------------------------------------------ semi-quantification
-    def semiquant(self, api_key=None, batch_export=None, ed_max=0.5, min_level="2b", matrix_factor=1.0, unit="ng/mL"):
+    def semiquant(self, api_key=None, batch_export=None, ed_max=0.5, min_level="2b", matrix_factor=1.0, unit="ng/mL",
+                  method="auto", is_mix=None, is_conc_ug_ml=None, physchem=None, k=None, matrix_correction=True):
+        """method: 'is' = IS-surrogate (kNN of the labelled IS response factors, engine 0.6.0, recommended when an
+        IS mix was injected and targeted() was run); 'ed' = elucidation distance to calibration standards (0.5.0);
+        'auto' = 'is' when targeted results + an IS-mix injection exist, else 'ed'.
+        is_mix: file name(s) of the IS-mix injection(s) (default: sample-sheet type 'qc'); is_conc_ug_ml: IS
+        concentration in that mix (scalar or dict; default list column 'conc'); physchem: curated property csv
+        (logKow + pKa) e.g. from semiquant_eval/08_comptox_physchem_curated.csv."""
+        if method == "auto":
+            T0 = self._load("targeted")
+            has_mix = is_mix is not None or (self.sheet is not None and (self.sheet.type == "qc").any())
+            method = "is" if (T0 is not None and has_mix) else "ed"
+        if method == "is":
+            return self._semiquant_is(min_level, matrix_factor, unit, is_mix, is_conc_ug_ml, physchem, k, matrix_correction)
         from .comptox import property_table
         from .semiquant import semiquantify_ed
         Q = self._load("qa"); C = self._load("calibration")
@@ -273,7 +287,60 @@ class Project:
         for c in ("sq_conc", "sq_low", "sq_high"):
             out[c] = out[c] * matrix_factor
         out["sq_unit"] = unit
-        res = dict(table=out, properties=props)
+        res = dict(table=out, properties=props, method="ed")
+        self._save("semiquant", res)
+        return res
+
+    def _semiquant_is(self, min_level, matrix_factor, unit, is_mix, is_conc, physchem, k, matrix_correction):
+        from . import surrogate as SG
+        from .targeted import load_compounds
+        Q = self._load("qa"); T = self._load("targeted")
+        if Q is None or T is None:
+            raise RuntimeError("IS-surrogate semi-quant needs targeted() (IS list incl. the IS-mix injection) and qa()")
+        scfg = self.cfg.get("semiquant", {}).get("is_surrogate", {})
+        t0 = scfg.get("t0_min", 1.0); vm = scfg.get("void_margin_min", 0.5)
+        if is_mix is None:
+            is_mix = list(self.sheet.loc[self.sheet.type == "qc", "file"]) if self.sheet is not None else []
+        is_mix = [os.path.splitext(os.path.basename(f))[0] for f in ([is_mix] if isinstance(is_mix, str) else is_mix)]
+        comp = load_compounds(T["list_path"])
+        if is_conc is None and "conc" not in comp.columns:
+            raw = pd.read_csv(T["list_path"]) if str(T["list_path"]).endswith(".csv") else pd.read_excel(T["list_path"])
+            cc = next((c for c in raw.columns if str(c).lower() in ("conc", "conc_ug_ml", "is_conc")), None)
+            if cc is None:
+                raise ValueError("give is_conc_ug_ml= or a 'conc' (ug/mL) column in the IS list")
+            comp = comp.merge(raw[[raw.columns[0], cc]].rename(columns={raw.columns[0]: "name", cc: "conc"}), on="name", how="left")
+        rf = SG.is_response_factors(T["assigned"], comp, is_mix, is_conc, t0, vm)
+        ok_lv = LEVEL_ORDER[:LEVEL_ORDER.index(min_level) + 1]
+        I = Q["identifications"]
+        I = I[I.level.isin(ok_lv) & I.smiles.notna() & (I.smiles.astype(str) != "")].copy()
+        I["area"] = I["int_area"].fillna(I.get("area")) if "int_area" in I.columns else I.get("area")
+        I = I.rename(columns={"rt_apex": "rt"})
+        allc = pd.concat([rf[["name", "smiles"]], I[["name", "smiles"]]]).drop_duplicates("name")
+        props = SG.physchem_table(allc, physchem, scfg.get("mobile_phase_ph", 2.7))
+        rec = SG.is_recovery(T["assigned"], rf, is_mix) if matrix_correction else None
+        out = SG.semiquantify_is(I, rf, props, scfg.get("method", "knn"), k or scfg.get("k", 5), rec,
+                                 scfg.get("rt_window_min", 1.0), t0, vm, tuple(scfg.get("uncertainty", (3, 5, 10))),
+                                 tuple(scfg.get("ad_cuts", (1.0, 2.0))))
+        # RT <-> property plausibility (column-specific regression fitted on the IS; weak identification evidence)
+        used = rf[rf.use].merge(props, on="name", suffixes=("", "_p"))
+        out["rt_pred_from_properties"] = np.nan
+        out["rt_property_plausible"] = None
+        rtm = None
+        if len(used) >= 6:
+            rtm = SG.RTPropertyModel(t0).fit(used.rt.to_numpy(), used)
+            pp = props.set_index("name").reindex(out["name"]).reset_index()
+            okp = pp.logP.notna().to_numpy() & np.isfinite(out["rt"].to_numpy(float))
+            if okp.any():
+                iv = rtm.predict_interval(pp[okp])
+                idx = out.index[okp]
+                out.loc[idx, "rt_pred_from_properties"] = iv.rt_pred.to_numpy()
+                rr = out.loc[idx, "rt"].to_numpy(float)
+                out.loc[idx, "rt_property_plausible"] = (rr >= iv.rt_lo.to_numpy()) & (rr <= iv.rt_hi.to_numpy())
+        for c in ("sq_conc_ug_ml", "sq_low", "sq_high"):
+            out[c.replace("_ug_ml", "")] = out[c] * matrix_factor
+        out["sq_unit"] = unit
+        res = dict(table=out, properties=props, is_rf=rf, recovery=rec, method="is",
+                   rt_model=None if rtm is None else dict(coef=rtm.coef.tolist(), s=rtm.s, n=rtm.n))
         self._save("semiquant", res)
         return res
 

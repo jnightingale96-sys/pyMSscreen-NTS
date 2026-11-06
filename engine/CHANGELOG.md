@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 (2026-11-06) - IS-surrogate semi-quantification
+* `surrogate.py` + `Project.semiquant(method="is"|"ed"|"auto")`: molar response factors of the labelled IS in the IS-mix
+  injection (Good, resolved, non-void peaks only); each target gets the inverse-distance-weighted RF of its k = 5 nearest IS in
+  z-scored (logKow, TPSA, McGowan volume, MW, HBD, HBA, cationic fraction) space; per-sample matrix correction by the IS
+  recovery near the target RT; uncertainty x/÷3 / 5 / 10 by nearest-IS distance, x/÷10 for void-eluting targets and for
+  ionisation classes no IS represents. Optional curated physchem csv (logKow + pKa) overrides RDKit estimates.
+* `RTPropertyModel`: column-specific log k regression (logP, TPSA, charge) fitted on the IS -> `rt_pred_from_properties` and
+  `rt_property_plausible` (weak identification evidence).
+* Evidence: semiquant_eval (SCIEX X500R, 75 drug IS): leave-one-IS-out median error 1.37x, 97 % within 3x in the neat IS mix;
+  single-reference calibration was the worst strategy (median 2.0x, worst 39x). Matrix correction removes the average
+  bias in pooled water but not compound-specific effects (worst ~30x). Config block `semiquant.is_surrogate`.
+* Colab box 9: method selector, IS-mix file(s), IS concentration, curated physchem csv.
+
 ## 0.5.0 (2026-11-02) - project workflow + Google Colab notebook
 * `workflow.Project`: step API (raw conversion, sample sheet, calibration, targeted IS screen, NTS screening, QA, semi-quant,
   chromatograms, report); every step persists its results so a notebook can be resumed. Notebook `colab/HRMS_NTS_Colab.ipynb`
