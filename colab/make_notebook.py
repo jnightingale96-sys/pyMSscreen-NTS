@@ -94,6 +94,17 @@ elif SOURCE == "GitHub":
                              "\nCheck GITHUB_REPO, that the GH_TOKEN secret has Notebook access, and that the token can read this repository "
                              "(Contents: Read-only) and has not expired.")
         subprocess.run(["git", "-C", ROOT, "remote", "set-url", "origin", f"https://github.com/{GITHUB_REPO}.git"])   # token not kept on disk
+    else:                                             # already cloned in this runtime: update to the latest code (databases are kept)
+        auth = f"x-access-token:{TOKEN}@" if TOKEN else ""
+        r = subprocess.run(["git", "-C", ROOT, "fetch", "-q", "--depth", "1", f"https://{auth}github.com/{GITHUB_REPO}.git", GITHUB_BRANCH],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            subprocess.run(["git", "-C", ROOT, "reset", "-q", "--hard", "FETCH_HEAD"], check=True)
+            print("engine code updated from GitHub")
+        else:
+            print("could not update the engine code (" + r.stderr.replace(TOKEN, "***").strip()[:200] + ") - using the existing copy")
+        for m in [m for m in list(sys.modules) if m == "hrms_nts" or m.startswith("hrms_nts.")]:
+            del sys.modules[m]                        # re-import the updated engine below
     data_dir = os.path.join(ROOT, "engine", "data"); os.makedirs(data_dir, exist_ok=True)
     tmp = os.path.join(ROOT, "_download.zip")
     if not os.path.exists(os.path.join(data_dir, "spectral_library.sqlite")):
