@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-TYPES = ["sample", "blank", "qc", "cal", "exclude"]
+TYPES = ["sample", "blank", "qc", "cal", "is_mix", "solvent_std", "matrix_spike", "exclude"]
 
 
 def _w():
@@ -13,24 +13,24 @@ def _w():
 
 
 def sample_sheet_editor(P, sheet: pd.DataFrame | None = None):
-    """One row per mzML: type, group (replicates of one sample share a group), replicate, conc (calibration level)."""
+    """One row per mzML: type, group (replicates of one sample share a group), replicate, cal_level (L1..L8 for type cal)."""
     w, display = _w()
     s = sheet if sheet is not None else (P.sheet if P.sheet is not None else P.guess_sample_sheet())
     rows = []
     head = w.HBox([w.HTML(f"<b>{t}</b>", layout=w.Layout(width=wd)) for t, wd in
-                   (("file", "300px"), ("type", "110px"), ("group (replicates share it)", "240px"), ("replicate", "90px"), ("cal. conc", "110px"))])
+                   (("file", "300px"), ("type", "110px"), ("group (replicates share it)", "240px"), ("replicate", "90px"), ("cal level (L1..)", "110px"))])
     for r in s.itertuples():
         rows.append(dict(file=r.file,
                          type=w.Dropdown(options=TYPES, value=r.type if r.type in TYPES else "sample", layout=w.Layout(width="110px")),
                          group=w.Text(value=str(r.group), layout=w.Layout(width="240px")),
                          replicate=w.Text(value=str(getattr(r, "replicate", "")), layout=w.Layout(width="90px")),
-                         conc=w.FloatText(value=float(r.conc) if pd.notna(r.conc) else 0.0, layout=w.Layout(width="110px"))))
-    box = w.VBox([head] + [w.HBox([w.Label(x["file"], layout=w.Layout(width="300px")), x["type"], x["group"], x["replicate"], x["conc"]]) for x in rows])
+                         lvl=w.Text(value=str(getattr(r, "cal_level", "") if pd.notna(getattr(r, "cal_level", "")) else ""), layout=w.Layout(width="110px"))))
+    box = w.VBox([head] + [w.HBox([w.Label(x["file"], layout=w.Layout(width="300px")), x["type"], x["group"], x["replicate"], x["lvl"]]) for x in rows])
     btn = w.Button(description="Save sample sheet", button_style="success"); out = w.Output()
 
     def save(_):
         df = pd.DataFrame([dict(file=x["file"], type=x["type"].value, group=x["group"].value, replicate=x["replicate"].value,
-                                conc=x["conc"].value if x["type"].value == "cal" else np.nan) for x in rows])
+                                cal_level=x["lvl"].value if x["type"].value == "cal" else "") for x in rows])
         df = df[df.type != "exclude"]
         with out:
             out.clear_output()
@@ -141,3 +141,36 @@ def show_calibration(res, max_plots=12):
                                  name="chosen", showlegend=k == 0), r, c)
     fig.update_layout(height=320 * rows, template="plotly_white", title=f"Calibration curves ({res.get('units', '')})")
     fig.show()
+
+
+def upload_files(folder, accept=None):
+    """Colab: open the browser's file picker, save the chosen files into `folder` and return their paths.
+    Outside Colab returns [] (give a path in the box instead)."""
+    try:
+        from google.colab import files
+    except Exception:
+        print("not in Colab - type the file path into the box instead")
+        return []
+    import os, shutil
+    os.makedirs(folder, exist_ok=True)
+    up = files.upload()
+    out = []
+    for name in up:
+        if accept and not name.lower().endswith(tuple(accept)):
+            print(f"skipped {name} (expected {', '.join(accept)})"); continue
+        dst = os.path.join(folder, os.path.basename(name))
+        shutil.move(name, dst)
+        out.append(dst)
+        print("saved", dst)
+    return out
+
+
+def download(*paths):
+    """Colab: send files to the browser's download folder (no-op elsewhere)."""
+    try:
+        from google.colab import files
+    except Exception:
+        for p in paths: print("file:", p)
+        return
+    for p in paths:
+        files.download(p)

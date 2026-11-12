@@ -128,13 +128,19 @@ class Project:
         ch = r["assigned"]
         conc = self.sheet.set_index("file")["conc"]
         comp = pd.read_csv(lst) if isinstance(lst, str) else lst
+        # per-compound level concentrations (template columns L1..L8 + sample-sheet cal_level) take precedence over the
+        # single 'conc' per calibration injection
+        from .templates import level_concentrations
+        lvl = level_concentrations(comp)
+        lvl_conc = {(n, l): c for n, l, c in lvl[["name", "cal_level", "conc"]].itertuples(index=False)}
+        file_level = self.sheet.set_index("file")["cal_level"].astype(str) if "cal_level" in self.sheet.columns else pd.Series(dtype=str)
         comp.columns = [c.lower() for c in comp.columns]
         isn = dict(zip(comp["name"], comp["is_name"].fillna("").astype(str))) if "is_name" in comp.columns else {}
         role = dict(zip(comp["name"], comp["role"].fillna("target").astype(str).str.lower())) if "role" in comp.columns else {}
         area = ch.set_index(["name", "file"])["int_area"]
         rows, abs_rows = [], []
         for x in ch[ch.file.isin(self.sheet.loc[self.sheet.type == "cal", "file"])].itertuples():
-            c = conc.get(x.file, np.nan)
+            c = lvl_conc.get((x.name, file_level.get(x.file, "")), conc.get(x.file, np.nan))
             if not np.isfinite(c):
                 continue
             isname = isn.get(x.name, "")
@@ -169,7 +175,7 @@ class Project:
         if q1_ppm: self.cfg["targeted"]["q1_ppm"] = q1_ppm; self.cfg["_overrides"].setdefault("targeted", {})["q1_ppm"] = q1_ppm
         if q3_ppm: self.cfg["targeted"]["q4_ppm"] = q3_ppm; self.cfg["_overrides"].setdefault("targeted", {})["q4_ppm"] = q3_ppm
         lst = is_list if isinstance(is_list, str) else self._write_list(is_list, "targeted_list.csv")
-        files = list(self.mzml_files().values()) if self.sheet is None else self.files_of("sample", "qc", "blank", "cal")
+        files = list(self.mzml_files().values()) if self.sheet is None else self.files_of("sample", "qc", "blank", "cal", "is_mix", "solvent_std", "matrix_spike")
         sheet = os.path.join(self.out_dir, "sample_sheet.csv") if self.sheet is not None else None
         r = run_targeted(files, lst, os.path.join(self.out_dir, "targeted"), self.cfg, sheet=sheet)
         per_is, per_inj = QA.is_qc(r["assigned"], self.sheet)
@@ -265,7 +271,7 @@ class Project:
         (logKow + pKa) e.g. from semiquant_eval/08_comptox_physchem_curated.csv."""
         if method == "auto":
             T0 = self._load("targeted")
-            has_mix = is_mix is not None or (self.sheet is not None and (self.sheet.type == "qc").any())
+            has_mix = is_mix is not None or (self.sheet is not None and self.sheet.type.isin(["is_mix", "solvent_std", "qc"]).any())
             method = "is" if (T0 is not None and has_mix) else "ed"
         if method == "is":
             return self._semiquant_is(min_level, matrix_factor, unit, is_mix, is_conc_ug_ml, physchem, k, matrix_correction)
@@ -300,7 +306,11 @@ class Project:
         scfg = self.cfg.get("semiquant", {}).get("is_surrogate", {})
         t0 = scfg.get("t0_min", 1.0); vm = scfg.get("void_margin_min", 0.5)
         if is_mix is None:
-            is_mix = list(self.sheet.loc[self.sheet.type == "qc", "file"]) if self.sheet is not None else []
+            is_mix = []
+            for t in ("is_mix", "solvent_std", "qc"):          # first sample-sheet type present
+                if self.sheet is not None and (self.sheet.type == t).any():
+                    is_mix = list(self.sheet.loc[self.sheet.type == t, "file"])
+                    break
         is_mix = [os.path.splitext(os.path.basename(f))[0] for f in ([is_mix] if isinstance(is_mix, str) else is_mix)]
         comp = load_compounds(T["list_path"])
         if is_conc is None and "conc" not in comp.columns:
@@ -316,11 +326,27 @@ class Project:
         I["area"] = I["int_area"].fillna(I.get("area")) if "int_area" in I.columns else I.get("area")
         I = I.rename(columns={"rt_apex": "rt"})
         allc = pd.concat([rf[["name", "smiles"]], I[["name", "smiles"]]]).drop_duplicates("name")
+        if physchem is None and os.path.exists(os.path.join(self.out_dir, "comptox_properties.csv")):
+            physchem = os.path.join(self.out_dir, "comptox_properties.csv")      # from comptox()
         props = SG.physchem_table(allc, physchem, scfg.get("mobile_phase_ph", 2.7))
-        rec = SG.is_recovery(T["assigned"], rf, is_mix) if matrix_correction else None
+        # matrix correction: True / "is_recovery" = IS recovery in each sample near the target RT;
+        # "me_map" = matrix-effect map from matrix_effect() (spiked control extract vs solvent standard); False/"none" = off
+        mode = {True: "is_recovery", False: "none", None: "none"}.get(matrix_correction, matrix_correction)
+        rec = SG.is_recovery(T["assigned"], rf, is_mix) if mode == "is_recovery" else None
         out = SG.semiquantify_is(I, rf, props, scfg.get("method", "knn"), k or scfg.get("k", 5), rec,
                                  scfg.get("rt_window_min", 1.0), t0, vm, tuple(scfg.get("uncertainty", (3, 5, 10))),
                                  tuple(scfg.get("ad_cuts", (1.0, 2.0))))
+        out["sq_matrix_correction"] = mode
+        if mode == "me_map":
+            from .matrix import me_at_rt
+            ME = self._load("matrix_effect")
+            if ME is None:
+                raise RuntimeError("matrix_correction='me_map' needs matrix_effect() first")
+            me = np.array([me_at_rt(ME["map"], float(t)) for t in out["rt"]])
+            out["sq_ME_pct_at_rt"] = me
+            f = np.where(np.isfinite(me), 1 + me / 100, 1.0)
+            for c in ("sq_conc_ug_ml", "sq_low", "sq_high"):
+                out[c] = out[c] / f
         # RT <-> property plausibility (column-specific regression fitted on the IS; weak identification evidence)
         used = rf[rf.use].merge(props, on="name", suffixes=("", "_p"))
         out["rt_pred_from_properties"] = np.nan
@@ -386,9 +412,77 @@ class Project:
         return dict(trace=tr, summary=summ, figure=fig)
 
     # ------------------------------------------------------------------------------------------------ report
+    # ------------------------------------------------------------------------------------------------ CompTox batch search
+    def comptox(self, auto=True, exports=None, min_level="2b"):
+        """Physico-chemical properties from the CompTox Dashboard batch search for every identified compound (>= min_level),
+        IS and calibrant. auto=True runs the Dashboard export automatically (no key); exports = uploaded .xlsx file(s)
+        from a manual batch search. Result (structure-checked) -> comptox_properties.csv, used by semiquant()."""
+        from . import comptox_batch as CB
+        comp = []
+        Q = self._load("qa"); T = self._load("targeted"); C = self._load("calibration")
+        if Q is not None:
+            ok = LEVEL_ORDER[:LEVEL_ORDER.index(min_level) + 1]
+            comp.append(Q["identifications"].loc[Q["identifications"].level.isin(ok), ["name", "smiles"]])
+        if T is not None:
+            from .targeted import load_compounds
+            comp.append(load_compounds(T["list_path"])[["name", "smiles"]])
+        if C is not None and len(C["rf"]):
+            comp.append(C["rf"][["name", "smiles"]])
+        comp = pd.concat(comp, ignore_index=True) if comp else pd.DataFrame(columns=["name", "smiles"])
+        comp = comp[comp.smiles.astype(str).str.len() > 0]
+        ids = CB.identifier_list(comp)
+        d = os.path.join(self.out_dir, "comptox"); os.makedirs(d, exist_ok=True)
+        lst = os.path.join(d, "comptox_batch_identifiers.txt")
+        open(lst, "w", encoding="utf-8").write("\n".join(list(ids["name"]) + list(ids.inchikey)))
+        paths = list(exports or [])
+        if auto and not paths:
+            try:
+                paths = [CB.fetch_export(list(ids["name"]), "chemical_name", os.path.join(d, "CCD_batch_by_name.xlsx")),
+                         CB.fetch_export(list(ids.inchikey), "INCHIKEY", os.path.join(d, "CCD_batch_by_inchikey.xlsx"))]
+            except Exception as e:
+                raise RuntimeError(f"automatic CompTox export failed ({e}). {CB.MANUAL_STEPS} Identifier list: {lst}")
+        tab = CB.curate(paths, comp)
+        out = os.path.join(self.out_dir, "comptox_properties.csv")
+        tab.to_csv(out, index=False)
+        res = dict(table=tab, path=out, identifiers=lst, exports=paths)
+        self._save("comptox", res)
+        return res
+
+    # ------------------------------------------------------------------------------------------------ templates / matrix effect
+    def templates(self, out=None):
+        """Write fill-in templates (sample sheet, calibration list with levels L1..L8, IS list) + README."""
+        from .templates import write_templates
+        return write_templates(out or os.path.join(self.out_dir, "templates"))
+
+    def check_list(self, path_or_df, kind="is"):
+        """Check a filled-in IS ('is') or calibration ('cal') list: formula vs monoisotopic mass (5 dp), roles, levels."""
+        from .templates import check_compound_list
+        return check_compound_list(path_or_df, kind)
+
+    def matrix_effect(self, window_min=1.0):
+        """Matrix effect after the run: 'matrix_spike' (mix in control extract) vs 'solvent_std' (same mix in solvent),
+        from the targeted results. Saves a table, an RT map and a figure; semiquant() can use the map."""
+        from . import matrix as MX
+        T = self._load("targeted")
+        if T is None:
+            raise RuntimeError("run targeted() with an IS / standard list first")
+        me = MX.matrix_effect(T["assigned"], self.sheet)
+        mp = MX.me_map(me, window_min)
+        d = os.path.join(self.out_dir, "matrix_effect"); os.makedirs(d, exist_ok=True)
+        me.to_csv(os.path.join(d, "matrix_effect_per_compound.csv"), index=False)
+        mp.to_csv(os.path.join(d, "matrix_effect_map.csv"), index=False)
+        png = MX.plot_me(me, mp, os.path.join(d, "matrix_effect_map.png"))
+        res = dict(table=me, map=mp, png=png)
+        self._save("matrix_effect", res)
+        return res
+
     def report(self, path=None):
+        """NTS_report.xlsx (all tables, cover sheet) + NTS_report.html (one-file summary with figures). Returns both paths."""
         from .report_project import write_project_report
-        return write_project_report(self, path or os.path.join(self.out_dir, "NTS_report.xlsx"))
+        from .report_html import write_html_report
+        xlsx = write_project_report(self, path or os.path.join(self.out_dir, "NTS_report.xlsx"))
+        htm = write_html_report(self, os.path.splitext(xlsx)[0] + ".html", getattr(self, "_report_notes", None))
+        return dict(xlsx=xlsx, html=htm)
 
 
 def _trfp_command(trfp=None):

@@ -87,14 +87,24 @@ def write_project_report(P, path):
         if qcp is not None:
             cc["QC pass"] = comp.consensus_id.map(qcp["qc_pass"]).values
         if SQ is not None:
-            sq = SQ["table"].groupby("name").agg(conc=("sq_conc", "median"), low=("sq_low", "median"), high=("sq_high", "median"),
-                                                 ed=("elucidation_distance", "median"), cal=("sq_calibrant", "first"), ok=("sq_ed_ok", "first"))
-            unit = SQ["table"]["sq_unit"].iloc[0] if len(SQ["table"]) else ""
+            st = SQ["table"]
+            agg = dict(conc=("sq_conc", "median"), low=("sq_low", "median"), high=("sq_high", "median"))
+            if SQ.get("method") == "is":
+                agg.update(nn=("sq_nearest_IS", "first"), dist=("sq_nn_distance", "median"), flags=("sq_flags", "first"))
+            else:
+                agg.update(ed=("elucidation_distance", "median"), cal=("sq_calibrant", "first"), ok=("sq_ed_ok", "first"))
+            sq = st.groupby("name").agg(**{k: v for k, v in agg.items() if v[0] in st.columns})
+            unit = st["sq_unit"].iloc[0] if len(st) else ""
             cc[f"Semi-quant median ({unit})"] = comp.name.map(sq["conc"]).values
-            cc["Semi-quant range (x/÷ factor)"] = [f"{a:.3g} - {b:.3g}" if pd.notna(a) else "" for a, b in zip(comp.name.map(sq["low"]), comp.name.map(sq["high"]))]
-            cc["Elucidation distance"] = comp.name.map(sq["ed"]).values
-            cc["ED < 0.5 (close calibrant)"] = comp.name.map(sq["ok"]).values
-            cc["Calibrant used"] = comp.name.map(sq["cal"]).values
+            cc["Semi-quant range (uncertainty)"] = [f"{a:.3g} - {b:.3g}" if pd.notna(a) else "" for a, b in zip(comp.name.map(sq["low"]), comp.name.map(sq["high"]))]
+            if SQ.get("method") == "is":
+                cc["Nearest internal standard"] = comp.name.map(sq.get("nn", pd.Series(dtype=object))).values
+                cc["Distance to nearest IS"] = comp.name.map(sq.get("dist", pd.Series(dtype=float))).values
+                cc["Semi-quant flags"] = comp.name.map(sq.get("flags", pd.Series(dtype=object))).values
+            else:
+                cc["Elucidation distance"] = comp.name.map(sq["ed"]).values
+                cc["ED < 0.5 (close calibrant)"] = comp.name.map(sq["ok"]).values
+                cc["Calibrant used"] = comp.name.map(sq["cal"]).values
         sheets["Identified_compounds"] = cc
         if len(pres):
             sheets["Presence_by_group"] = pres
@@ -121,13 +131,25 @@ def write_project_report(P, path):
                 rows.append(dict(name=x.name, file=x.file, response=resp))
             if rows:
                 sheets["Quantification"] = quantify(C["fits"], pd.DataFrame(rows)).assign(unit=C["units"])
+    ME = P._load("matrix_effect")
+    if ME is not None:
+        sheets["Matrix_effect"] = ME["table"]
+        notes.append(("Matrix effect", "ME % = 100 x (area in spiked control extract / area in solvent standard - 1); < -20 % suppression, > +20 % enhancement"))
     if SQ is not None:
-        keep = [c for c in ("sample", "name", "level", "rt", "area", "sq_conc", "sq_low", "sq_high", "sq_unit", "elucidation_distance", "sq_ed_ok",
-                            "sq_calibrant", "sq_logie", "sq_logp", "sq_logp_source", "smiles") if c in SQ["table"].columns]
+        keep = [c for c in ("sample", "name", "level", "rt", "area", "sq_conc", "sq_low", "sq_high", "sq_unit", "sq_method", "sq_nearest_IS",
+                            "sq_nn_distance", "sq_recovery", "sq_ME_pct_at_rt", "sq_matrix_correction", "sq_flags", "rt_pred_from_properties",
+                            "rt_property_plausible", "elucidation_distance", "sq_ed_ok", "sq_calibrant", "sq_logie", "sq_logp", "sq_logp_source",
+                            "smiles") if c in SQ["table"].columns]
         sheets["Semi_quant"] = SQ["table"][keep]
         sheets["Properties"] = SQ["properties"]
-        notes.append(("Semi-quant", "elucidation distance in z-scored (logIE, RT, MW, logP) space to the nearest calibrant; conc = area / RF_cal x 10^(logIE_cal - logIE); "
-                                    "logP from CompTox (experimental > predicted) else RDKit; ED < 0.5 = close analogue; report the x/÷ uncertainty factor"))
+        if SQ.get("method") == "is":
+            sheets["IS_response_factors"] = SQ["is_rf"]
+            notes.append(("Semi-quant", "IS surrogate: molar response of the 5 most similar internal standards (inverse-distance weighted; logKow, TPSA, "
+                                        "molar volume, MW, H-bond donors/acceptors, charge) from the IS-mix injection; corrected for matrix effect; "
+                                        "uncertainty x/÷3 near the IS, x/÷5 / x/÷10 further away, x/÷10 for void-eluting compounds"))
+        else:
+            notes.append(("Semi-quant", "elucidation distance in z-scored (logIE, RT, MW, logP) space to the nearest calibrant; conc = area / RF_cal x 10^(logIE_cal - logIE); "
+                                        "logP from CompTox (experimental > predicted) else RDKit; ED < 0.5 = close analogue; report the x/÷ uncertainty factor"))
     notes += [("Levels", "1 standard RT + library MS2; 2a library MS2 (cosine >= 0.70); 2b >= 3 decoy-corrected in-silico explained product ions; "
                          "3 1-2 explained ions / weak library; 4 exact mass (<= 5 ppm); 5 exact mass, no candidate (Schymanski et al. 2014)"),
               ("Peak rating", "0-10 from points across the peak, FWHM/base shape, jaggedness, modality and S/N (Compound-Discoverer-style; components in the confidence JSON)")]
@@ -137,7 +159,7 @@ def write_project_report(P, path):
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
         pd.DataFrame(notes, columns=["Topic", "Note"]).to_excel(xw, sheet_name="Read_me", index=False)
         for k in ("Identified_compounds", "Detections_per_sample", "Presence_by_group", "Level_summary", "QC_features", "IS_QC", "Injection_QC",
-                  "Calibration", "Calibration_points", "Quantification", "Semi_quant", "Properties", "Samples"):
+                  "Calibration", "Calibration_points", "Quantification", "Matrix_effect", "Semi_quant", "IS_response_factors", "Properties", "Samples"):
             if k in sheets and len(sheets[k]):
                 sheets[k].to_excel(xw, sheet_name=k, index=False)
     wb = openpyxl.load_workbook(path)
@@ -160,9 +182,39 @@ def write_project_report(P, path):
             if "Peak rating (0-10)" in col and r[col["Peak rating (0-10)"] - 1].value is not None:
                 v = r[col["Peak rating (0-10)"] - 1].value
                 r[col["Peak rating (0-10)"] - 1].fill = fill(GREEN if v >= 7 else AMBER if v >= 5 else RED)
-    ws = wb["Read_me"]; ws.column_dimensions["A"].width = 22; ws.column_dimensions["B"].width = 150
+        if ws.max_row > 1 and ws.title != "Read_me":
+            ws.auto_filter.ref = ws.dimensions
+    ws = wb["Read_me"]; ws.title = "Methods_notes"; ws.column_dimensions["A"].width = 22; ws.column_dimensions["B"].width = 150
     for r in ws.iter_rows(min_row=2):
         for c in r: c.alignment = Alignment(wrap_text=True, vertical="top")
+    # cover sheet
+    import datetime
+    from . import __version__
+    cv = wb.create_sheet("Cover", 0)
+    cv.sheet_view.showGridLines = False
+    cv["B2"] = "HRMS non-target screening report"; cv["B2"].font = Font(size=18, bold=True, color="1F6F78")
+    cv["B3"] = f"pyMSscreen-NTS engine {__version__}  ·  generated {datetime.datetime.now():%d %b %Y %H:%M}"
+    cv["B3"].font = Font(size=10, color="5A6663")
+    info = [("Data folder", P.data_dir), ("Results folder", P.out_dir)]
+    if P.sheet is not None:
+        info.append(("Injections", ", ".join(f"{v} {k}" for k, v in P.sheet.type.value_counts().items())))
+    if "Identified_compounds" in sheets:
+        lv = sheets["Identified_compounds"]["Level"].astype(str).value_counts()
+        info.append(("Compounds identified", ", ".join(f"Level {k}: {lv[k]}" for k in LEVEL_ORDER if k in lv.index)))
+    if TG is not None:
+        info.append(("Internal standards found", f"{TG['assigned'].name.nunique()} (see IS_QC)"))
+    if ME is not None and len(ME["table"]):
+        m = ME["table"].ME_pct
+        info.append(("Matrix effect", f"median {m.median():+.0f} % ({(m < -20).sum()} suppressed, {(m > 20).sum()} enhanced of {len(m)})"))
+    if SQ is not None:
+        info.append(("Semi-quantification", "IS surrogate (kNN)" if SQ.get("method") == "is" else "elucidation distance"))
+    info.append(("Sheets", "Identified_compounds = one row per compound; Detections_per_sample = every detection; "
+                           "Methods_notes = definitions and settings"))
+    for i, (k, v) in enumerate(info, start=5):
+        cv[f"B{i}"] = k; cv[f"B{i}"].font = Font(bold=True, color="1B2422")
+        cv[f"C{i}"] = str(v); cv[f"C{i}"].alignment = Alignment(wrap_text=True, vertical="top")
+    cv.column_dimensions["A"].width = 3; cv.column_dimensions["B"].width = 26; cv.column_dimensions["C"].width = 110
     wb.save(path)
+    P._report_notes = notes
     log.info("project report -> %s", path)
     return path
