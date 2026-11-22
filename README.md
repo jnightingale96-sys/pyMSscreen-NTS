@@ -1,5 +1,11 @@
 # pyMSscreen-NTS
 
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jnightingale96-sys/pyMSscreen-NTS/blob/main/colab/HRMS_NTS_Colab.ipynb)
+[![Tests](https://github.com/jnightingale96-sys/pyMSscreen-NTS/actions/workflows/tests.yml/badge.svg)](https://github.com/jnightingale96-sys/pyMSscreen-NTS/actions/workflows/tests.yml)
+
+**Fastest way to try it: open the notebook in Google Colab** (badge above), run box 0, put your mzML files on Google Drive and
+work through the boxes. Nothing is installed on your computer. Step-by-step instructions: [`colab/README.md`](colab/README.md).
+
 **pyMSscreen-NTS** is a modified version of [pyMSscreen](https://gitlab.com/uniluxembourg/lcsb/eci/pymsscreen)
 (University of Luxembourg, LCSB Environmental Cheminformatics; Artistic License 2.0). It keeps the complete pyMSscreen
 targeted-prescreening workflow (inputs → extraction → plotting/QA) and adds the **HRMS NTS engine** (`engine/`, package `hrms_nts`):
