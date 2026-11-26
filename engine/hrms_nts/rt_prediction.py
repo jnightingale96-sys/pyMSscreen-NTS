@@ -63,8 +63,8 @@ def global_descriptors(smiles: str):
         try:
             v = float(fn[n](m))
         except Exception:
-            v = np.nan
-        extra.append(v if np.isfinite(v) else np.nan)
+            v = 0.0
+        extra.append(v if np.isfinite(v) else 0.0)        # e.g. partial charges undefined for some atoms
     el = [sum(a.GetSymbol() == s for a in m.GetAtoms()) for s in ("N", "O", "S", "P", "F", "Cl", "Br")]
     return base + extra + el + [Chem.GetFormalCharge(m)]
 
@@ -115,7 +115,8 @@ class _MonotoneMap:
         out = self.lin.predict(np.nan_to_num(v).reshape(-1, 1))
         if self.iso is not None:
             inside = (v >= self.x[0]) & (v <= self.x[-1])
-            out[inside] = 0.5 * out[inside] + 0.5 * self.iso.predict(v[inside])   # smooth: half isotonic, half linear
+            if inside.any():
+                out[inside] = 0.5 * out[inside] + 0.5 * self.iso.predict(v[inside])   # smooth: half isotonic, half linear
         out[~np.isfinite(v)] = np.nan
         return out
 

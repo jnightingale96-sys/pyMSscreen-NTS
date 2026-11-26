@@ -26,15 +26,22 @@ def main(src, out_dir):
     df = pd.read_csv(src, sep=";")
     df["rt_min"] = df.rt / 60.0
     df = df[df.rt_min >= 5.0].reset_index(drop=True)
-    X, y = [], []
-    for inchi, rt in zip(df.inchi, df.rt_min):
-        m = Chem.MolFromInchi(inchi)
-        if m is None:
-            continue
-        d = global_descriptors(Chem.MolToSmiles(m))
-        if d is not None:
-            X.append(d); y.append(rt)
-    X, y = np.array(X, float), np.array(y, float)
+    os.makedirs(out_dir, exist_ok=True)
+    cache = os.path.join(out_dir, "_smrt_descriptors.npz")
+    if os.path.exists(cache):
+        z = np.load(cache); X, y = z["X"], z["y"]
+    else:
+        X, y = [], []
+        for inchi, rt in zip(df.inchi, df.rt_min):
+            m = Chem.MolFromInchi(inchi)
+            if m is None:
+                continue
+            d = global_descriptors(Chem.MolToSmiles(m))
+            if d is not None:
+                X.append(d); y.append(rt)
+        X, y = np.array(X, float), np.array(y, float)
+        np.savez_compressed(cache, X=X, y=y)
+    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
     print(f"{len(y)} retained SMRT compounds, {X.shape[1]} descriptors", flush=True)
     mdl = HistGradientBoostingRegressor(max_iter=800, learning_rate=0.06, max_leaf_nodes=63, min_samples_leaf=20,
                                         l2_regularization=0.5, random_state=0)
@@ -45,7 +52,6 @@ def main(src, out_dir):
            f"(SMRT RT range {y.min():.1f}-{y.max():.1f} min)")
     print(rep, flush=True)
     mdl.fit(X, y)
-    os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "global_rt_model.pkl"), "wb") as f:
         pickle.dump(dict(model=mdl, descriptors=GLOBAL_DESC_NAMES, source="METLIN SMRT (retained, RT >= 5 min)",
                          n=len(y), cv=rep), f)
