@@ -40,12 +40,116 @@ def descriptors(smiles: str):
 
 DESC_NAMES = ["logP", "MR", "TPSA", "MW", "HBD", "HBA", "RotB", "AroRings", "Rings", "Fsp3", "HeavyAtoms"] + list(_SMARTS)
 
+_GLOBAL_EXTRA = ["LabuteASA", "BertzCT", "Chi1v", "Chi2v", "Kappa2", "HallKierAlpha", "NumHeteroatoms", "FractionCSP3",
+                 "NumAliphaticRings", "NumSaturatedRings", "qed", "MaxPartialCharge", "MinPartialCharge", "PEOE_VSA1",
+                 "PEOE_VSA6", "PEOE_VSA7", "SlogP_VSA2", "SlogP_VSA5", "SMR_VSA5", "EState_VSA2", "VSA_EState6",
+                 "fr_COO", "fr_NH2", "fr_ArOH", "fr_ether", "fr_ester", "fr_amide", "fr_halogen", "fr_sulfonamd"]
+GLOBAL_DESC_NAMES = DESC_NAMES + _GLOBAL_EXTRA + ["n_N", "n_O", "n_S", "n_P", "n_F", "n_Cl", "n_Br", "formal_charge"]
+
+
+def global_descriptors(smiles: str):
+    """Descriptor vector for the global (SMRT-trained) retention model: the 18 QSAR descriptors + 29 RDKit descriptors
+    + element counts and formal charge. Largest fragment only."""
+    from rdkit import Chem
+    from rdkit.Chem import Descriptors
+    base = descriptors(smiles)
+    if base is None:
+        return None
+    m = Chem.MolFromSmiles(smiles)
+    m = max(Chem.GetMolFrags(m, asMols=True), key=lambda x: x.GetNumHeavyAtoms())
+    fn = dict(Descriptors.descList)
+    extra = []
+    for n in _GLOBAL_EXTRA:
+        try:
+            v = float(fn[n](m))
+        except Exception:
+            v = np.nan
+        extra.append(v if np.isfinite(v) else np.nan)
+    el = [sum(a.GetSymbol() == s for a in m.GetAtoms()) for s in ("N", "O", "S", "P", "F", "Cl", "Br")]
+    return base + extra + el + [Chem.GetFormalCharge(m)]
+
+
+class GlobalRT:
+    """Method-independent retention index from the SMRT-trained model (paths.global_rt_model), transferred to a lab's
+    method with a monotonic map fitted on anchor compounds (standards + internal standards)."""
+
+    def __init__(self, path):
+        with open(path, "rb") as f:
+            d = pickle.load(f)
+        self.model, self.info = d["model"], d.get("cv", "")
+        self._cache = {}
+
+    def index(self, smiles_list):
+        out = np.full(len(smiles_list), np.nan)
+        todo = [s for s in set(smiles_list) if isinstance(s, str) and s not in self._cache]
+        if todo:
+            X, keys = [], []
+            for s in todo:
+                d = global_descriptors(s)
+                if d is None:
+                    self._cache[s] = np.nan
+                else:
+                    X.append(d); keys.append(s)
+            if X:
+                for s, v in zip(keys, self.model.predict(np.array(X, float))):
+                    self._cache[s] = float(v)
+        for i, s in enumerate(smiles_list):
+            out[i] = self._cache.get(s, np.nan) if isinstance(s, str) else np.nan
+        return out
+
+
+class _MonotoneMap:
+    """Global index -> method RT. >= 8 anchors: isotonic regression with linear extrapolation; 4-7: Huber linear."""
+
+    def __init__(self, x, y):
+        from sklearn.linear_model import HuberRegressor
+        o = np.argsort(x); self.x, self.y = np.asarray(x, float)[o], np.asarray(y, float)[o]
+        self.lin = HuberRegressor().fit(self.x.reshape(-1, 1), self.y)
+        self.iso = None
+        if len(self.x) >= 8:
+            from sklearn.isotonic import IsotonicRegression
+            self.iso = IsotonicRegression(out_of_bounds="clip").fit(self.x, self.y)
+
+    def predict(self, v):
+        v = np.asarray(v, float)
+        out = self.lin.predict(np.nan_to_num(v).reshape(-1, 1))
+        if self.iso is not None:
+            inside = (v >= self.x[0]) & (v <= self.x[-1])
+            out[inside] = 0.5 * out[inside] + 0.5 * self.iso.predict(v[inside])   # smooth: half isotonic, half linear
+        out[~np.isfinite(v)] = np.nan
+        return out
+
 
 class RTModel:
     def __init__(self, polarity: str, tol=0.5, conflict_factor=2.0, adaptive_k=0.0):
         self.polarity = polarity; self.tol = tol; self.conflict_factor = conflict_factor; self.adaptive_k = adaptive_k
         self.qsar = None; self.qsar_rmse = np.nan
         self.rti = None; self.rti_rmse = np.nan; self.n_train = 0; self.rt_range = (0, 99)
+        self.glob = None; self.glob_map = None; self.glob_rmse = np.nan; self.n_anchor = 0
+
+    def fit_global(self, standards: pd.DataFrame, global_rt: "GlobalRT"):
+        """Transfer the SMRT-trained global retention index to this method using the anchors (>= 4 needed)."""
+        from sklearn.model_selection import LeaveOneOut
+        st = standards.dropna(subset=["rt"])
+        st = st[st["smiles"].astype(str).str.len() > 0]
+        gi = global_rt.index(st["smiles"].tolist())
+        ok = np.isfinite(gi)
+        x, y = gi[ok], st["rt"].values.astype(float)[ok]
+        self.n_anchor = len(x)
+        if len(x) < 4:
+            log.warning("global RT transfer (%s): only %d anchors with structures (>= 4 needed)", self.polarity, len(x))
+            return self
+        pred = np.array([_MonotoneMap(x[tr], y[tr]).predict(x[te])[0] for tr, te in LeaveOneOut().split(x)])
+        self.glob_rmse = float(np.sqrt(np.nanmean((pred - y) ** 2)))
+        self.glob, self.glob_map = global_rt, _MonotoneMap(x, y)
+        self.rt_range = (min(self.rt_range[0], float(y.min())), max(self.rt_range[1] if self.n_train else 0, float(y.max())))
+        log.info("RT global-index transfer (%s): %d anchors, LOO RMSE=%.2f min", self.polarity, len(x), self.glob_rmse)
+        return self
+
+    def predict_global(self, smiles_list):
+        if self.glob_map is None:
+            return np.full(len(smiles_list), np.nan)
+        return self.glob_map.predict(self.glob.index(list(smiles_list)))
 
     # ---- training -------------------------------------------------------------------------------------------
     def fit(self, standards: pd.DataFrame, rti_lookup: pd.DataFrame | None = None):
@@ -124,16 +228,21 @@ class RTModel:
         h["rt_pred_qsar"] = self.predict_qsar(h["smiles"].tolist()) if n else np.array([])
         col = "pred_rti_pos" if self.polarity == "positive" else "pred_rti_neg"
         h["rt_pred_rti"] = self.predict_rti(h[col].values) if (col in h.columns and n) else np.nan
+        h["rt_pred_global"] = self.predict_global(h["smiles"].tolist()) if n else np.array([])
         h["rt_diff_qsar"] = h["rt_apex"] - h["rt_pred_qsar"]
         h["rt_diff_rti"] = h["rt_apex"] - h["rt_pred_rti"]
+        h["rt_diff_global"] = h["rt_apex"] - h["rt_pred_global"]
         tq, tr = self.tolerance(self.qsar_rmse), self.tolerance(self.rti_rmse)
-        aq = h["rt_diff_qsar"].abs() <= tq; ar = h["rt_diff_rti"].abs() <= tr
-        have_q = h["rt_pred_qsar"].notna(); have_r = h["rt_pred_rti"].notna()
-        h["rt_available"] = have_q | have_r
-        h["rt_agree"] = (have_q & aq) | (have_r & ar)
+        # the global transfer is less precise than a QSAR trained on many own standards: tolerance never below its LOO RMSE
+        tg = max(self.tolerance(self.glob_rmse), self.glob_rmse if np.isfinite(self.glob_rmse) else 0.0)
+        aq = h["rt_diff_qsar"].abs() <= tq; ar = h["rt_diff_rti"].abs() <= tr; ag = h["rt_diff_global"].abs() <= tg
+        have_q = h["rt_pred_qsar"].notna(); have_r = h["rt_pred_rti"].notna(); have_g = h["rt_pred_global"].notna()
+        h["rt_available"] = have_q | have_r | have_g
+        h["rt_agree"] = (have_q & aq) | (have_r & ar) | (have_g & ag)
         cq = have_q & (h["rt_diff_qsar"].abs() > self.conflict_factor * tq)
         cr = have_r & (h["rt_diff_rti"].abs() > self.conflict_factor * tr)
-        h["rt_conflict"] = h["rt_available"] & ((cq | ~have_q) & (cr | ~have_r))
+        cg = have_g & (h["rt_diff_global"].abs() > self.conflict_factor * tg)
+        h["rt_conflict"] = h["rt_available"] & ((cq | ~have_q) & (cr | ~have_r) & (cg | ~have_g))
         return h
 
     def save(self, path):

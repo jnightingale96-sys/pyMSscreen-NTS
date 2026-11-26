@@ -173,7 +173,8 @@ def write_html_report(P, path, notes=None):
     if T is not None and len(T):
         cols = {"name": "Compound", "level": "Level", "formula": "Formula", "adduct": "Adduct", "rt_apex": "RT (min)",
                 "ppm_error": "Q1 error (ppm)", "lib_score": "Library score", "bi_expl_adj_n": "Explained product ions",
-                "presence_confidence_pct": "Presence confidence (%)", "peak_rating": "Peak rating (0-10)"}
+                "presence_confidence_pct": "Presence confidence (%)", "peak_rating": "Peak rating (0-10)",
+                "origin_hint": "Origin (reference databases)", "tp_of": "TP of (literature)"}
         ok = T[T.level.isin(["1", "2a", "2b", "3"])].copy()
         ok["lv"] = ok.level.map({k: i for i, k in enumerate(LEVEL_ORDER)})
         b = ok.sort_values(["lv", "presence_confidence_pct" if "presence_confidence_pct" in ok else "lv"], ascending=[True, False])

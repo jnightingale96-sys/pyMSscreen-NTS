@@ -63,10 +63,13 @@ def write_project_report(P, path):
         qcp = Q["qc"].set_index("consensus_id") if Q is not None and len(Q["qc"]) else None
         cols = dict(name="Compound", formula="Formula", smiles="SMILES", inchikey="InChIKey", level="Level", level_basis="Level basis",
                     adducts_seen="Adducts (co-eluting)", rt_apex="RT (min)", ppm_error="Q1 error (ppm)", rt_pred_qsar="RT predicted QSAR",
-                    rt_pred_rti="RT predicted RTI", rt_agree="RT agrees", std_rt_diff="RT diff to standard", ms2_evidence="Product-ion evidence",
+                    rt_pred_rti="RT predicted RTI", rt_pred_global="RT predicted (SMRT transfer)", rt_agree="RT agrees", std_rt_diff="RT diff to standard", ms2_evidence="Product-ion evidence",
                     product_ions_predicted="Product ions predicted", bi_expl_peaks="Explained product ions", iso_score="Isotope score",
                     peak_rating="Peak rating (0-10)", presence_confidence_pct="Presence confidence (%)", int_area="Peak area", int_sn="S/N",
-                    blank_flag="In blank", blank_ratio="Sample/blank ratio", sample="Sample", feature_id="Feature", consensus_id="Consensus feature")
+                    blank_flag="In blank", blank_ratio="Sample/blank ratio", origin_hint="Origin (reference databases)",
+                    norman_lists="NORMAN SLE lists", known_tp="Known transformation product", tp_of="TP of (parent, literature)",
+                    np_sources="Natural-product / lipid databases", chebi_roles="ChEBI roles", lipid_class="Lipid class",
+                    sample="Sample", feature_id="Feature", consensus_id="Consensus feature")
         det = T[[c for c in cols if c in T.columns]].rename(columns=cols)
         det["Present (replicates)"] = T.get("consensus_id", pd.Series(index=T.index, dtype=object)).map(pres_txt).fillna("")
         if qcp is not None:
@@ -150,7 +153,11 @@ def write_project_report(P, path):
         else:
             notes.append(("Semi-quant", "elucidation distance in z-scored (logIE, RT, MW, logP) space to the nearest calibrant; conc = area / RF_cal x 10^(logIE_cal - logIE); "
                                         "logP from CompTox (experimental > predicted) else RDKit; ED < 0.5 = close analogue; report the x/÷ uncertainty factor"))
-    notes += [("Levels", "1 standard RT + library MS2; 2a library MS2 (cosine >= 0.70); 2b >= 3 decoy-corrected in-silico explained product ions; "
+    notes += [("Reference databases", "Origin labels from the free structure databases (matched on the InChIKey first block): NORMAN Suspect "
+                                      "List Exchange collections (incl. transformation-product lists S38/S66/S68/S74/S78/S81/S121 with "
+                                      "literature parent-TP pairs), COCONUT, LOTUS, NP Atlas, LIPID MAPS and ChEBI roles. Context only - "
+                                      "they do not change the identification level."),
+              ("Levels","1 standard RT + library MS2; 2a library MS2 (cosine >= 0.70); 2b >= 3 decoy-corrected in-silico explained product ions; "
                          "3 1-2 explained ions / weak library; 4 exact mass (<= 5 ppm); 5 exact mass, no candidate (Schymanski et al. 2014)"),
               ("Peak rating", "0-10 from points across the peak, FWHM/base shape, jaggedness, modality and S/N (Compound-Discoverer-style; components in the confidence JSON)")]
     import openpyxl

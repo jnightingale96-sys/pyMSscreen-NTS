@@ -623,7 +623,7 @@ def run_targeted(files, list_path, out, cfg, sheet=None, blanks=None, polarity="
         from .targeted_report import eic_pdf
         eic_pdf(os.path.join(out, "EIC_integration_QC.pdf"), ch, res, comp, blank_files, tc)
     write_provenance(out, cfg, files, None, extra=dict(mode="targeted", list=list_path, sample_sheet=sheet, blanks=sorted(blank_files)))
-    return dict(xlsx=xlsx, assigned=ch, info=info, blank=blank, calibration=cal)
+    return dict(xlsx=xlsx, assigned=ch, info=info, blank=blank, calibration=cal, anchors=anchors)
 
 
 def _file_roles(files, sheet, blanks):

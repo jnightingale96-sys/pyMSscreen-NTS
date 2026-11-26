@@ -43,11 +43,11 @@ code(r'''
 SOURCE = "GitHub"  #@param ["GitHub", "Google Drive zip", "Local folder (this PC)"]
 GITHUB_REPO = "jnightingale96-sys/pyMSscreen-NTS"  #@param {type:"string"}
 GITHUB_BRANCH = "main"  #@param {type:"string"}
-DATA_RELEASE_TAG = "data-v1"  #@param {type:"string"}
+DATA_RELEASE_TAG = "data-v2"  #@param {type:"string"}
 PACKAGE_ZIP = "/content/drive/MyDrive/HRMS_NTS/HRMS_NTS_Ultimate_20261102_v0.5.zip"  #@param {type:"string"}
 LOCAL_PACKAGE = r"C:\Users\jnigh\Desktop\HRMS_NTS_Ultimate_build\HRMS_NTS_Ultimate"  #@param {type:"string"}
 INSTALL_METFRAG = True  #@param {type:"boolean"}
-import os, sys, zipfile, subprocess, glob, json, shutil, urllib.request
+import os, sys, zipfile, subprocess, glob, json, shutil, urllib.request, urllib.error
 try:
     import google.colab
     IN_COLAB = True
@@ -60,9 +60,18 @@ if IN_COLAB:
 
 
 def fetch_release_asset(repo, tag, name, dest, token=""):
-    """Download one asset of a GitHub Release (works for private repositories with a token). Returns False if absent."""
+    """Download one asset of a GitHub Release (works for private repositories with a token). Returns False if absent.
+    Falls back to the older release 'data-v1' when the requested tag or asset does not exist."""
     hdr = {"Authorization": f"Bearer {token}"} if token else {}
-    rel = json.load(urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/tags/{tag}", headers=hdr)))
+    try:
+        rel = json.load(urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/tags/{tag}", headers=hdr)))
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and tag != "data-v1":
+            print(f"release {tag} not found - using data-v1")
+            return fetch_release_asset(repo, "data-v1", name, dest, token)
+        raise
+    if tag != "data-v1" and not any(a["name"] == name for a in rel["assets"]):
+        return fetch_release_asset(repo, "data-v1", name, dest, token)
     asset = next((a for a in rel["assets"] if a["name"] == name), None)
     if asset is None:
         return False
@@ -107,7 +116,8 @@ elif SOURCE == "GitHub":
             del sys.modules[m]                        # re-import the updated engine below
     data_dir = os.path.join(ROOT, "engine", "data"); os.makedirs(data_dir, exist_ok=True)
     tmp = os.path.join(ROOT, "_download.zip")
-    if not os.path.exists(os.path.join(data_dir, "spectral_library.sqlite")):
+    # data-v2 adds the free-database reference index, TP pairs, NORMAN SLE candidates and the SMRT RT model
+    if not os.path.exists(os.path.join(data_dir, "spectral_library.sqlite")) or             (DATA_RELEASE_TAG != "data-v1" and not os.path.exists(os.path.join(data_dir, "reference_index.csv.gz"))):
         fetch_release_asset(GITHUB_REPO, DATA_RELEASE_TAG, "hrms_nts_data.zip", tmp, TOKEN)
         zipfile.ZipFile(tmp).extractall(data_dir); os.remove(tmp)
     if INSTALL_METFRAG and not os.path.isdir(os.path.join(data_dir, "mb_converted")):

@@ -10,6 +10,15 @@ paths:
   # PubChemLite for Exposomics (.csv)                   search 'PubChemLite' on Zenodo / https://pubchemlite.lcsb.uni.lu
   pubchemlite:  "data/PubChemLite_exposomics.csv"
   user_compounds: null          # compounds.csv (pyMSscreen format: ID,Name,SMILES,mz,precursor_mz) - extra suspects / targets
+  # NORMAN Suspect List Exchange structures (all 137 collections, incl. transformation-product lists) as extra candidates,
+  # and the reference index / TP pairs built from the free structure databases by tools/build_reference_index.py
+  # (NORMAN SLE, COCONUT, LOTUS, NP Atlas, LIPID MAPS, ChEBI). Missing files are skipped.
+  sle_candidates:  "data/sle_candidates.csv.gz"
+  reference_index: "data/reference_index.csv.gz"
+  tp_pairs:        "data/tp_pairs.csv.gz"
+  # Global retention model trained on METLIN SMRT (tools/train_global_rt.py); transferred to your method with the
+  # standards + internal-standard RTs as anchors (>= 4) -> rt_pred_global. Missing file = not used.
+  global_rt_model: "data/global_rt_model.pkl"
   # MS/MS libraries in NIST-style MSP: MassBank (github.com/MassBank/MassBank-data releases, *_NISTformat.msp),
   # GNPS (gnps-external.ucsd.edu/gnpslibrary, ALL_GNPS_NO_PROPOGATED.msp), MoNA.  `build-library` converts them to one SQLite file.
   library_msp:

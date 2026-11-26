@@ -42,10 +42,21 @@ class Context:
         if col not in self.standards.columns:
             return None
         tr = self.standards.rename(columns={col: "rt"}).dropna(subset=["rt"])
-        if len(tr) < 6:
-            log.warning("RT model (%s): only %d standards - skipped", pol, len(tr)); return None
+        gp = resolve(cfg, cfg["paths"].get("global_rt_model"))
+        glob = None
+        if gp and os.path.exists(gp):
+            if not hasattr(self, "_global_rt"):
+                from .rt_prediction import GlobalRT
+                self._global_rt = GlobalRT(gp)
+            glob = self._global_rt
+        if len(tr) < 6 and (glob is None or len(tr) < 4):
+            log.warning("RT model (%s): only %d standards / anchors - skipped", pol, len(tr)); return None
         m = RTModel(pol, tol=rc["tolerance_min"], conflict_factor=rc["conflict_factor"], adaptive_k=rc.get("adaptive_k", 0.0))
-        return m.fit(tr, self.db.df)
+        if len(tr) >= 6:
+            m.fit(tr, self.db.df)
+        if glob is not None and "smiles" in tr.columns:
+            m.fit_global(tr, glob)
+        return m
 
 
 @lru_cache(maxsize=200000)
@@ -103,7 +114,7 @@ def _process_sample(path, ctx: Context, matrix="water", polarity="auto", out_dir
         if rm is not None:
             hits = rm.annotate(hits)
         else:
-            for c in ("rt_pred_qsar", "rt_pred_rti", "rt_diff_qsar", "rt_diff_rti"): hits[c] = np.nan
+            for c in ("rt_pred_qsar", "rt_pred_rti", "rt_pred_global", "rt_diff_qsar", "rt_diff_rti", "rt_diff_global"): hits[c] = np.nan
             hits["rt_available"] = False; hits["rt_agree"] = False; hits["rt_conflict"] = False
         hits = known_standard_rt(hits, ctx.standards, pol)
         # ---- limit candidate load for MS2-heavy steps -------------------------------------------------------

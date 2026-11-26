@@ -180,7 +180,7 @@ class Project:
         r = run_targeted(files, lst, os.path.join(self.out_dir, "targeted"), self.cfg, sheet=sheet)
         per_is, per_inj = QA.is_qc(r["assigned"], self.sheet)
         res = dict(assigned=r["assigned"], blank=r["blank"], info=r["info"], xlsx=r["xlsx"], is_qc=per_is, injection_qc=per_inj,
-                   list_path=lst)
+                   list_path=lst, anchors=r.get("anchors", pd.DataFrame()))
         self._save("targeted", res)
         return res
 
@@ -193,6 +193,17 @@ class Project:
         files = self.files_of(*types) if self.sheet is not None else list(self.mzml_files().values())
         out = os.path.join(self.out_dir, "nts"); os.makedirs(out, exist_ok=True)
         ctx = Context(self.cfg)
+        # RT anchors: internal standards / targets found in targeted() (parent structures) join the lab's standards, so the RT
+        # models (QSAR, RTI map, SMRT global-index transfer) are fitted on this method even without a standards file
+        TG = self._load("targeted")
+        anc = TG.get("anchors") if TG is not None else None
+        if anc is not None and len(anc):
+            st = ctx.standards if ctx.standards is not None else pd.DataFrame(columns=["name", "smiles", "inchikey", "rt_pos", "rt_neg"])
+            ik = set(st["inchikey"].astype(str).str[:14]) if "inchikey" in st.columns else set()
+            add = anc[~anc["inchikey"].astype(str).str[:14].isin(ik)][["name", "smiles", "inchikey", "rt_pos", "rt_neg"]]
+            ctx.standards = pd.concat([st, add], ignore_index=True)
+            ctx.rt_models = {pol: ctx._rt_model(pol) for pol in ("positive", "negative")}
+            log.info("RT anchors from the targeted screen: %d compounds added to %d standards", len(add), len(st))
         results = []
         for f in files:
             try:
@@ -256,6 +267,11 @@ class Project:
             del run
         Q = pd.DataFrame(rows)
         T = T.merge(Q, on=["sample", "feature_id"], how="left") if len(Q) else T
+        try:                                  # NORMAN lists / known TP / natural-product labels from the free reference index
+            from .reference import annotate
+            T = annotate(T, self.cfg)
+        except Exception as e:
+            log.warning("reference annotation skipped: %s", e)
         res = dict(presence=pres, qc=qc, identifications=T, rule=rule, presence_threshold=presence_threshold)
         self._save("qa", res)
         return res

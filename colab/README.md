@@ -36,6 +36,21 @@ your computer; the results are written to your Google Drive.
 `is_mix` (internal-standard mix in solvent, used for semi-quantification response factors), `solvent_std` / `matrix_spike`
 (the same mix in 10 % MeOH/water and spiked into a control extract: matrix effect), `exclude`.
 
+## Databases (all free)
+
+Box 0 downloads them from the Release (`data-v2`, falls back to `data-v1`). Details, versions and licences: `engine/DATA_SOURCES.md`.
+
+| Purpose | Databases |
+|---|---|
+| Candidates (Level 4/3) | NORMAN SusDat · PubChemLite for Exposomics (2026-09, with predicted CCS) · all 137 NORMAN Suspect List Exchange collections |
+| MS/MS spectra (Level 2a) | GNPS · MassBank (2026.03) · MoNA · MS-DIAL public libraries incl. lipids (970k spectra, 75k structures) |
+| In-silico product ions (Level 2b) | built-in fragmenter (decoy-corrected) · MetFrag with offline MassBank/GNPS/MoNA spectra |
+| Retention time | NORMAN RTI · METLIN SMRT global model (80k compounds) transferred to your method with the internal standards / standards as anchors |
+| Origin labels | NORMAN SLE list membership · literature parent → TP pairs (7,898) · COCONUT · LOTUS · NP Atlas · LIPID MAPS · ChEBI roles |
+| Physico-chemical properties | US EPA CompTox Dashboard (live batch search) |
+
+Commercial libraries (NIST, Wiley, mzCloud) cannot be redistributed; a lab that owns one can add its MSP export as `inhouse_msp`.
+
 ## Semi-quantification
 
 Box 9b estimates concentrations for identified compounds without their own standards. Each compound takes the molar response

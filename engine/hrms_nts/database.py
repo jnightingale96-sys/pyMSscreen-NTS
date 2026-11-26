@@ -46,6 +46,15 @@ def load_pubchemlite(path: str) -> pd.DataFrame:
     return _finish(df.dropna(subset=["exact_mass"]))
 
 
+def load_sle(path: str) -> pd.DataFrame:
+    """NORMAN Suspect List Exchange structures (tools/build_reference_index.py -> sle_candidates.csv.gz)."""
+    df = pd.read_csv(path, dtype=str)
+    df["db_id"] = "SLE:" + df["lists"].fillna("").str.split(";").str[0]
+    df["source"] = "NORMAN-SLE"
+    df["cas"] = ""
+    return _finish(df.dropna(subset=["exact_mass"]))
+
+
 def load_user_compounds(path: str) -> pd.DataFrame:
     """pyMSscreen-style compounds.csv: ID, Name, SMILES, mz (neutral mass), precursor_mz (any of the last three)."""
     df = pd.read_csv(path, dtype=str)
@@ -115,7 +124,7 @@ def build_database(cfg: dict) -> CompoundDB:
     from .common import resolve
     frames = []
     p = cfg["paths"]
-    for key, fn in (("susdat", load_susdat), ("pubchemlite", load_pubchemlite)):
+    for key, fn in (("susdat", load_susdat), ("pubchemlite", load_pubchemlite), ("sle_candidates", load_sle)):
         path = resolve(cfg, p.get(key))
         if path and os.path.exists(path):
             frames.append(fn(path)); log.info("loaded %s: %d", key, len(frames[-1]))
