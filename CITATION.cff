@@ -4,6 +4,14 @@ title: "pyMSscreen-NTS: HRMS non-target screening, identification confidence and
 version: 0.6.0
 date-released: 2026-11-27
 license: Artistic-2.0
+doi: 10.5281/zenodo.24573714
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24573714
+    description: "Concept DOI (all versions)"
+  - type: doi
+    value: 10.5281/zenodo.24573715
+    description: "Version 0.6.0"
 repository-code: "https://github.com/jnightingale96-sys/pyMSscreen-NTS"
 authors:
   - family-names: Nightingale
