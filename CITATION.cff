@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below, and cite pyMSscreen (on which the web interface is based) and the databases you rely on (engine/DATA_SOURCES.md)."
+title: "pyMSscreen-NTS: HRMS non-target screening, identification confidence and semi-quantification"
+version: 0.6.0
+date-released: 2026-11-27
+license: Artistic-2.0
+repository-code: "https://github.com/jnightingale96-sys/pyMSscreen-NTS"
+authors:
+  - family-names: Nightingale
+    given-names: John
+keywords:
+  - non-target screening
+  - high-resolution mass spectrometry
+  - LC-HRMS
+  - semi-quantification
+  - suspect screening
+  - transformation products
+references:
+  - type: software
+    title: pyMSscreen
+    authors:
+      - name: "Environmental Cheminformatics, LCSB, University of Luxembourg"
+    repository-code: "https://gitlab.com/uniluxembourg/lcsb/eci/pymsscreen"
+    license: Artistic-2.0

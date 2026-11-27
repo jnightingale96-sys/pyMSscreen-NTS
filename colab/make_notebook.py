@@ -45,7 +45,7 @@ GITHUB_REPO = "jnightingale96-sys/pyMSscreen-NTS"  #@param {type:"string"}
 GITHUB_BRANCH = "main"  #@param {type:"string"}
 DATA_RELEASE_TAG = "data-v2"  #@param {type:"string"}
 PACKAGE_ZIP = "/content/drive/MyDrive/HRMS_NTS/HRMS_NTS_Ultimate_20261102_v0.5.zip"  #@param {type:"string"}
-LOCAL_PACKAGE = r"C:\Users\jnigh\Desktop\HRMS_NTS_Ultimate_build\HRMS_NTS_Ultimate"  #@param {type:"string"}
+LOCAL_PACKAGE = r"C:\path\to\HRMS_NTS_Ultimate"  #@param {type:"string"}
 INSTALL_METFRAG = True  #@param {type:"boolean"}
 import os, sys, zipfile, subprocess, glob, json, shutil, urllib.request, urllib.error
 try:

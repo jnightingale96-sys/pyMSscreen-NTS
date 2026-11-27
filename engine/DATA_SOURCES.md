@@ -1,5 +1,17 @@
 # Data sources and tools bundled in `data/`
 
+## Licence summary for public release
+
+* **Code** (this repository): Artistic License 2.0, as the pyMSscreen code it modifies.
+* **Database package** (`hrms_nts_data.zip`): a compilation of public databases, each under its own licence (table below).
+  Most are CC0 or CC BY 4.0. The most restrictive components are **non-commercial**: individual MassBank / MoNA records
+  (per-record CC BY-NC / CC BY-NC-SA, inherited by the MS-DIAL compilations) and NP Atlas (CC BY-NC 4.0, used only as an
+  origin label). The package may therefore be redistributed **for non-commercial research use with attribution**; anyone
+  needing commercial use can rebuild it from the original sources with `hrms-nts build-library`
+  (`library_sources_dir`), `tools/build_reference_index.py` and `tools/train_global_rt.py`.
+* Thermo's RawFileReader libraries (inside ThermoRawFileParser) are **not** in the database package (Colab installs the
+  converter itself); the Windows package bundles them under the Thermo licence.
+
 The files below come from public sources and are bundled for convenience. **Licences and terms can change - check each source before passing the package on or publishing,
 and cite the sources you rely on.** Nothing here is our own measured data except the in-silico settings.
 
