@@ -3,6 +3,7 @@
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jnightingale96-sys/pyMSscreen-NTS/blob/main/colab/HRMS_NTS_Colab.ipynb)
 [![Tests](https://github.com/jnightingale96-sys/pyMSscreen-NTS/actions/workflows/tests.yml/badge.svg)](https://github.com/jnightingale96-sys/pyMSscreen-NTS/actions/workflows/tests.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24573714.svg)](https://doi.org/10.5281/zenodo.24573714)
+[![Data DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24573798.svg)](https://doi.org/10.5281/zenodo.24573798)
 
 **Fastest way to try it: open the notebook in Google Colab** (badge above), run box 0, put your mzML files on Google Drive and
 work through the boxes. Nothing is installed on your computer. Step-by-step instructions: [`colab/README.md`](colab/README.md).
@@ -265,4 +266,8 @@ Nightingale, J. (2026). *pyMSscreen-NTS: HRMS non-target screening, identificati
 (version 0.6.0) [software]. Zenodo. https://doi.org/10.5281/zenodo.24573715
 
 Cite the version you used (each release has its own DOI; https://doi.org/10.5281/zenodo.24573714 always points to the newest).
+The reference databases are a separate record (CC BY-NC-SA 4.0; the Colab notebook downloads it automatically):
+Nightingale, J. (2026). *pyMSscreen-NTS reference databases (data package v2)* [data set]. Zenodo.
+https://doi.org/10.5281/zenodo.24573798
+
 Please also cite pyMSscreen and the databases you rely on ([`engine/DATA_SOURCES.md`](engine/DATA_SOURCES.md)).

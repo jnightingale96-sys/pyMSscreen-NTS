@@ -24,6 +24,14 @@ keywords:
   - suspect screening
   - transformation products
 references:
+  - type: data
+    title: "pyMSscreen-NTS reference databases (data package v2)"
+    authors:
+      - family-names: Nightingale
+        given-names: John
+    doi: 10.5281/zenodo.24573798
+    license: CC-BY-NC-SA-4.0
+    year: 2026
   - type: software
     title: pyMSscreen
     authors:

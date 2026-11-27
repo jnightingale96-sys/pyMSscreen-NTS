@@ -38,7 +38,7 @@ your computer; the results are written to your Google Drive.
 
 ## Databases (all free)
 
-Box 0 downloads them from the Zenodo record set in `ZENODO_RECORD` (checksum-verified), otherwise from the GitHub Release (`data-v2`, falls back to `data-v1`). Details, versions and licences: `engine/DATA_SOURCES.md`.
+Box 0 downloads them from Zenodo record [10.5281/zenodo.24573798](https://doi.org/10.5281/zenodo.24573798) (`ZENODO_RECORD`, checksum-verified; leave it empty to use the GitHub Release), otherwise from the GitHub Release (`data-v2`, falls back to `data-v1`). Details, versions and licences: `engine/DATA_SOURCES.md`.
 
 | Purpose | Databases |
 |---|---|
