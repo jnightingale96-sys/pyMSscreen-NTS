@@ -32,6 +32,24 @@ references:
     doi: 10.5281/zenodo.24573798
     license: CC-BY-NC-SA-4.0
     year: 2026
+  - type: article
+    title: "pyMSscreen: an interactive interface for automated quality control and prescreening in mass spectrometry workflows"
+    authors:
+      - family-names: Elapavalore
+        given-names: Anjana
+      - family-names: Chirsir
+        given-names: Parviel
+      - family-names: Palm
+        given-names: Emma H.
+      - family-names: Jakubec
+        given-names: Martin
+      - family-names: Schymanski
+        given-names: Emma L.
+    journal: "Journal of Cheminformatics"
+    volume: 18
+    start: 142
+    year: 2026
+    doi: 10.1186/s13321-026-01260-z
   - type: software
     title: pyMSscreen
     authors:

@@ -270,4 +270,8 @@ The reference databases are a separate record (CC BY-NC-SA 4.0; the Colab notebo
 Nightingale, J. (2026). *pyMSscreen-NTS reference databases (data package v2)* [data set]. Zenodo.
 https://doi.org/10.5281/zenodo.24573798
 
-Please also cite pyMSscreen and the databases you rely on ([`engine/DATA_SOURCES.md`](engine/DATA_SOURCES.md)).
+Please also cite pyMSscreen, on which this software is based: Elapavalore, A.; Chirsir, P.; Palm, E. H.; Jakubec, M.;
+Schymanski, E. L. pyMSscreen: an interactive interface for automated quality control and prescreening in mass spectrometry
+workflows. *J. Cheminform.* **2026**, 18, 142. https://doi.org/10.1186/s13321-026-01260-z
+
+Please also cite the databases you rely on ([`engine/DATA_SOURCES.md`](engine/DATA_SOURCES.md)).
