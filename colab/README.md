@@ -7,7 +7,7 @@ your computer; the results are written to your Google Drive.
 
 | Box | What it does |
 |---|---|
-| 0 | Installs the engine (from this repository) and downloads the databases (Release `data-v1`) |
+| 0 | Installs the engine (from this repository) and downloads the databases (Zenodo record `ZENODO_RECORD`, or Release `data-v2`) |
 | 1 · 1c | Data folder on Google Drive (`.mzML` / Thermo `.raw`); 1c uploads files from your computer |
 | 2 | Converts Thermo `.raw` to mzML (SCIEX `.wiff` must be converted with msconvert on Windows first) |
 | 3a · 3b | Downloads **fill-in templates** (sample sheet, calibration list, IS list) and reads your sample sheet |
@@ -38,7 +38,7 @@ your computer; the results are written to your Google Drive.
 
 ## Databases (all free)
 
-Box 0 downloads them from the Release (`data-v2`, falls back to `data-v1`). Details, versions and licences: `engine/DATA_SOURCES.md`.
+Box 0 downloads them from the Zenodo record set in `ZENODO_RECORD` (checksum-verified), otherwise from the GitHub Release (`data-v2`, falls back to `data-v1`). Details, versions and licences: `engine/DATA_SOURCES.md`.
 
 | Purpose | Databases |
 |---|---|

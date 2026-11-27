@@ -44,6 +44,7 @@ SOURCE = "GitHub"  #@param ["GitHub", "Google Drive zip", "Local folder (this PC
 GITHUB_REPO = "jnightingale96-sys/pyMSscreen-NTS"  #@param {type:"string"}
 GITHUB_BRANCH = "main"  #@param {type:"string"}
 DATA_RELEASE_TAG = "data-v2"  #@param {type:"string"}
+ZENODO_RECORD = ""  #@param {type:"string"}
 PACKAGE_ZIP = "/content/drive/MyDrive/HRMS_NTS/HRMS_NTS_Ultimate_20261102_v0.5.zip"  #@param {type:"string"}
 LOCAL_PACKAGE = r"C:\path\to\HRMS_NTS_Ultimate"  #@param {type:"string"}
 INSTALL_METFRAG = True  #@param {type:"boolean"}
@@ -82,6 +83,32 @@ def fetch_release_asset(repo, tag, name, dest, token=""):
     return True
 
 
+def fetch_zenodo_file(record, name, dest):
+    """Download one file of a public Zenodo record and check its MD5. Returns False if the record has no such file."""
+    import hashlib
+    rec = json.load(urllib.request.urlopen(f"https://zenodo.org/api/records/{record}"))
+    f = next((x for x in rec.get("files", []) if x["key"] == name), None)
+    if f is None:
+        return False
+    print(f"downloading {name} ({f['size'] / 1e9:.2f} GB) from Zenodo record {record} ...")
+    md5 = hashlib.md5()
+    with urllib.request.urlopen(f["links"]["self"]) as r, open(dest, "wb") as out:
+        for chunk in iter(lambda: r.read(1 << 24), b""):
+            md5.update(chunk); out.write(chunk)
+    if f.get("checksum", "md5:").split(":", 1)[1] not in ("", md5.hexdigest()):
+        os.remove(dest)
+        raise SystemExit(f"{name}: checksum mismatch - the download is incomplete; run box 0 again")
+    return True
+
+
+def fetch_data(name, dest, token=""):
+    """Databases come from the Zenodo record when ZENODO_RECORD is set, otherwise from the GitHub Release."""
+    record = ZENODO_RECORD.strip().rstrip("/").split("/")[-1]
+    if record:
+        return fetch_zenodo_file(record, name, dest)
+    return fetch_release_asset(GITHUB_REPO, DATA_RELEASE_TAG, name, dest, token)
+
+
 OVERRIDES = {}
 if SOURCE.startswith("Local"):
     ROOT = LOCAL_PACKAGE                       # its engine/config.local.yaml points to the bundled data, Java and MetFrag
@@ -118,10 +145,10 @@ elif SOURCE == "GitHub":
     tmp = os.path.join(ROOT, "_download.zip")
     # data-v2 adds the free-database reference index, TP pairs, NORMAN SLE candidates and the SMRT RT model
     if not os.path.exists(os.path.join(data_dir, "spectral_library.sqlite")) or             (DATA_RELEASE_TAG != "data-v1" and not os.path.exists(os.path.join(data_dir, "reference_index.csv.gz"))):
-        fetch_release_asset(GITHUB_REPO, DATA_RELEASE_TAG, "hrms_nts_data.zip", tmp, TOKEN)
+        fetch_data("hrms_nts_data.zip", tmp, TOKEN)
         zipfile.ZipFile(tmp).extractall(data_dir); os.remove(tmp)
     if INSTALL_METFRAG and not os.path.isdir(os.path.join(data_dir, "mb_converted")):
-        if fetch_release_asset(GITHUB_REPO, DATA_RELEASE_TAG, "metfrag_spectra.zip", tmp, TOKEN):
+        if fetch_data("metfrag_spectra.zip", tmp, TOKEN):
             zipfile.ZipFile(tmp).extractall(data_dir); os.remove(tmp)
     with open(os.path.join(ROOT, "engine", "config.local.yaml"), "w") as f:      # paths of the downloaded databases
         f.write('paths:\n  susdat: "data/susdat.csv"\n  pubchemlite: "data/PubChemLite_exposomics.csv"\n  library_msp: []\n'
